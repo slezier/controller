@@ -1,4 +1,4 @@
-/* Copyright (C) 2013-2014 by Jacob Alexander
+/* Copyright (C) 2013-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,8 +19,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef __buildvars_h
-#define __buildvars_h
+#pragma once
 
 // ----- Includes -----
 
@@ -29,17 +28,16 @@
 // ----- Defines -----
 
 // You can change these to give your code its own name.
-#define STR_MANUFACTURER	u"Kiibohd"
-#define STR_PRODUCT		u"Kiibohd DFU Bootloader"
+#define STR_MANUFACTURER        u"Kiibohd"
+#define STR_PRODUCT             u"Kiibohd DFU Bootloader"
 #define STR_SERIAL              u"@CHIP@"
+#define STR_ALTNAME             u"@BOOT_DFU_ALTNAME@"
 
 
 // Mac OS-X and Linux automatically load the correct drivers.  On
 // Windows, even though the driver is supplied by Microsoft, an
 // INF file is needed to load the driver.  These numbers need to
 // match the INF file.
-#define VENDOR_ID		@BOOT_VENDOR_ID@
-#define PRODUCT_ID		@BOOT_PRODUCT_ID@
-
-#endif
+#define VENDOR_ID         @BOOT_VENDOR_ID@
+#define PRODUCT_ID        @BOOT_PRODUCT_ID@
 

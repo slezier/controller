@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2014 by Jacob Alexander
+/* Copyright (C) 2011-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,8 +19,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef __usb_hid_h
-#define __usb_hid_h
+#pragma once
 
 // ----- Defines -----
 
@@ -113,7 +112,7 @@
 #define KEY_UP             0x52
 #define KEY_NUM_LOCK       0x53
 #define KEYPAD_SLASH       0x54
-#define KEYPAD_ASTERIX     0x55
+#define KEYPAD_ASTERISK    0x55
 #define KEYPAD_MINUS       0x56
 #define KEYPAD_PLUS        0x57
 #define KEYPAD_ENTER       0x58
@@ -772,8 +771,4 @@
 #define AC_DISTRIBUTE_HORIZONTALLY  0x29B
 #define AC_DISTRIBUTE_VERTICALLY    0x29C
 // 0x29D-0xFFFF Reserved
-
-
-
-#endif
 

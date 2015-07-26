@@ -1,6 +1,6 @@
 ###| CMAKE Kiibohd Controller Source Configurator |###
 #
-# Written by Jacob Alexander in 2011-2014 for the Kiibohd Controller
+# Written by Jacob Alexander in 2011-2015 for the Kiibohd Controller
 #
 # Released into the Public Domain
 #
@@ -33,22 +33,46 @@ set_target_properties( ${TARGET_ELF} PROPERTIES
 	SUFFIX ""                               # XXX Force Windows to keep the .exe off
 )
 
+#| llvm-clang does not have an objcopy equivalent
+if ( "${COMPILER}" MATCHES "clang" )
+	if ( "${COMPILER_FAMILY}" MATCHES "arm" )
+		set ( OBJ_COPY arm-none-eabi-objcopy )
+	elseif ( "${COMPILER_FAMILY}" MATCHES "arm" )
+		set ( OBJ_COPY avr-objcopy )
+	endif ()
+else ()
+	set ( OBJ_COPY ${CMAKE_OBJCOPY} )
+endif ()
+
 
 #| Convert the .ELF into a .bin to load onto the McHCK
-if( DEFINED DFU )
+#| Then sign using dfu-suffix (requries dfu-util)
+if ( DEFINED DFU )
+	# dfu-suffix is required to sign the dfu binary
+	find_package ( DFUSuffix )
+
 	set( TARGET_BIN ${TARGET}.dfu.bin )
-	add_custom_command( TARGET ${TARGET_ELF} POST_BUILD
-		COMMAND ${CMAKE_OBJCOPY} ${BIN_FLAGS} ${TARGET_ELF} ${TARGET_BIN}
-		COMMENT "Creating dfu binary file:      ${TARGET_BIN}"
-	)
-endif()
+	if ( DFU_SUFFIX_FOUND )
+		add_custom_command( TARGET ${TARGET_ELF} POST_BUILD
+			COMMAND ${OBJ_COPY} ${BIN_FLAGS} ${TARGET_ELF} ${TARGET_BIN}
+			COMMAND ${DFU_SUFFIX_EXECUTABLE} --add ${TARGET_BIN} --vid ${BOOT_VENDOR_ID} --pid ${BOOT_PRODUCT_ID} 1> /dev/null
+			COMMENT "Create and sign dfu bin file:  ${TARGET_BIN}"
+		)
+	else ()
+		message ( WARNING "DFU Binary has not been signed, requires dfu-suffix..." )
+		add_custom_command( TARGET ${TARGET_ELF} POST_BUILD
+			COMMAND ${OBJ_COPY} ${BIN_FLAGS} ${TARGET_ELF} ${TARGET_BIN}
+			COMMENT "Creating dfu binary file:      ${TARGET_BIN}"
+		)
+	endif ()
+endif ()
 
 
 #| Convert the .ELF into a .HEX to load onto the Teensy
 if ( DEFINED TEENSY )
 	set( TARGET_HEX ${TARGET}.teensy.hex )
 	add_custom_command( TARGET ${TARGET_ELF} POST_BUILD
-		COMMAND ${CMAKE_OBJCOPY} ${HEX_FLAGS} ${TARGET_ELF} ${TARGET_HEX}
+		COMMAND ${OBJ_COPY} ${HEX_FLAGS} ${TARGET_ELF} ${TARGET_HEX}
 		COMMENT "Creating iHex file to load:    ${TARGET_HEX}"
 	)
 endif()

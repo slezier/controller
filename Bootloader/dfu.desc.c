@@ -1,5 +1,5 @@
 // Originally Generated from MCHCK Toolkit
-/* Copyright (c) Jacob Alexander 2014 <haata@kiibohd.com>
+/* Copyright (c) Jacob Alexander 2014-2015 <haata@kiibohd.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,7 +50,7 @@ static const struct usb_config_1 usb_config_1 = {
 			.bInterfaceClass = USB_DEV_CLASS_APP,
 			.bInterfaceSubClass = USB_DEV_SUBCLASS_APP_DFU,
 			.bInterfaceProtocol = USB_DEV_PROTO_DFU_DFU,
-			.iInterface = 0
+			.iInterface = 4
 		},
 
 	.dfu = {
@@ -101,6 +101,7 @@ static const struct usb_desc_string_t * const dfu_device_str_desc[] = {
 	USB_DESC_STRING(STR_MANUFACTURER),
 	USB_DESC_STRING(STR_PRODUCT),
 	USB_DESC_STRING(STR_SERIAL),
+	USB_DESC_STRING(STR_ALTNAME),
 	NULL
 };
 

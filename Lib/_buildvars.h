@@ -1,4 +1,4 @@
-/* Copyright (C) 2013-2014 by Jacob Alexander
+/* Copyright (C) 2013-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,8 +19,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef __buildvars_h
-#define __buildvars_h
+#pragma once
 
 // ----- Includes -----
 
@@ -38,6 +37,7 @@
 #define CLI_Revision            "@Git_Commit_Revision@"
 #define CLI_Branch              "@Git_Branch_INFO@"
 #define CLI_ModifiedStatus      "@Git_Modified_Status@"
+#define CLI_ModifiedFiles       "@Git_Modified_Files@"
 #define CLI_RepoOrigin          "@Git_Origin_URL@"
 #define CLI_CommitDate          "@Git_Date_INFO@"
 #define CLI_CommitAuthor        @Git_Commit_Author@
@@ -54,8 +54,6 @@
 // Windows, even though the driver is supplied by Microsoft, an
 // INF file is needed to load the driver.  These numbers need to
 // match the INF file.
-#define VENDOR_ID		@VENDOR_ID@
-#define PRODUCT_ID		@PRODUCT_ID@
-
-#endif
+#define VENDOR_ID               @VENDOR_ID@
+#define PRODUCT_ID              @PRODUCT_ID@
 

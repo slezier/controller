@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2012,2014 by Jacob Alexander
+/* Copyright (C) 2011-2012,2014-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,8 +19,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef __SCAN_LOOP_H
-#define __SCAN_LOOP_H
+#pragma once
 
 // ----- Includes -----
 
@@ -46,7 +45,7 @@
 // NOTE: Highest Bit: Valid keypress (0x80 is valid keypress)
 //        Other Bits: Pressed state sample counter
 extern                       uint8_t KeyIndex_Array [KEYBOARD_KEYS + 1];
-                static const uint8_t KeyIndex_Size = KEYBOARD_KEYS;
+		static const uint8_t KeyIndex_Size = KEYBOARD_KEYS;
 
 extern volatile              uint8_t KeyIndex_Buffer[KEYBOARD_BUFFER];
 extern volatile              uint8_t KeyIndex_BufferUsed;
@@ -62,7 +61,4 @@ uint8_t Scan_loop( void );
 // Callbacks from the Macro and Output modules (useful with difficult protocols)
 void Scan_finishedWithBuffer( uint8_t sentKeys );
 void Scan_finishedWithUSBBuffer( uint8_t sentKeys );
-
-
-#endif // __SCAN_LOOP_H
 

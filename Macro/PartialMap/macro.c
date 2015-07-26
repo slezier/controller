@@ -1,4 +1,4 @@
-/* Copyright (C) 2014 by Jacob Alexander
+/* Copyright (C) 2014-2015 by Jacob Alexander
  *
  * This file is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -41,6 +41,7 @@ void cliFunc_capSelect ( char* args );
 void cliFunc_keyHold   ( char* args );
 void cliFunc_keyPress  ( char* args );
 void cliFunc_keyRelease( char* args );
+void cliFunc_layerDebug( char* args );
 void cliFunc_layerList ( char* args );
 void cliFunc_layerState( char* args );
 void cliFunc_macroDebug( char* args );
@@ -86,6 +87,7 @@ CLIDict_Entry( capSelect,   "Triggers the specified capabilities. First two args
 CLIDict_Entry( keyHold,     "Send key-hold events to the macro module. Duplicates have undefined behaviour." NL "\t\t\033[35mS10\033[0m Scancode 0x0A" );
 CLIDict_Entry( keyPress,    "Send key-press events to the macro module. Duplicates have undefined behaviour." NL "\t\t\033[35mS10\033[0m Scancode 0x0A" );
 CLIDict_Entry( keyRelease,  "Send key-release event to macro module. Duplicates have undefined behaviour." NL "\t\t\033[35mS10\033[0m Scancode 0x0A" );
+CLIDict_Entry( layerDebug,  "Layer debug mode. Shows layer stack and any changes." );
 CLIDict_Entry( layerList,   "List available layers." );
 CLIDict_Entry( layerState,  "Modify specified indexed layer state <layer> <state byte>." NL "\t\t\033[35mL2\033[0m Indexed Layer 0x02" NL "\t\t0 Off, 1 Shift, 2 Latch, 4 Lock States" );
 CLIDict_Entry( macroDebug,  "Disables/Enables sending USB keycodes to the Output Module and prints U/K codes." );
@@ -100,6 +102,7 @@ CLIDict_Def( macroCLIDict, "Macro Module Commands" ) = {
 	CLIDict_Item( keyHold ),
 	CLIDict_Item( keyPress ),
 	CLIDict_Item( keyRelease ),
+	CLIDict_Item( layerDebug ),
 	CLIDict_Item( layerList ),
 	CLIDict_Item( layerState ),
 	CLIDict_Item( macroDebug ),
@@ -111,6 +114,9 @@ CLIDict_Def( macroCLIDict, "Macro Module Commands" ) = {
 };
 
 
+// Layer debug flag - If set, displays any changes to layers and the full layer stack on change
+uint8_t layerDebugMode = 0;
+
 // Macro debug flag - If set, clears the USB Buffers after signalling processing completion
 uint8_t macroDebugMode = 0;
 
@@ -121,9 +127,11 @@ uint8_t macroPauseMode = 0;
 uint16_t macroStepCounter = 0;
 
 
-// Key Trigger List Buffer
+// Key Trigger List Buffer and Layer Cache
+// The layer cache is set on press only, hold and release events refer to the value set on press
 TriggerGuide macroTriggerListBuffer[ MaxScanCode ];
 uint8_t macroTriggerListBufferSize = 0;
+var_uint_t macroTriggerListLayerCache[ MaxScanCode ];
 
 // Pending Trigger Macro Index List
 //  * Any trigger macros that need processing from a previous macro processing loop
@@ -201,6 +209,30 @@ void Macro_layerState( uint8_t state, uint8_t stateType, uint16_t layer, uint8_t
 
 		// Reduce LayerIndexStack size
 		macroLayerIndexStackSize--;
+	}
+
+	// Layer Debug Mode
+	if ( layerDebugMode )
+	{
+		dbug_msg("Layer ");
+
+		// Iterate over each of the layers displaying the state as a hex value
+		for ( uint16_t index = 0; index < LayerNum; index++ )
+		{
+			printHex_op( LayerState[ index ], 0 );
+		}
+
+		// Always show the default layer (it's always 0)
+		print(" 0");
+
+		// Iterate over the layer stack starting from the bottom of the stack
+		for ( uint16_t index = macroLayerIndexStackSize; index > 0; index-- )
+		{
+			print(":");
+			printHex_op( macroLayerIndexStack[ index - 1 ], 0 );
+		}
+
+		print( NL );
 	}
 }
 
@@ -311,8 +343,24 @@ void Macro_layerShift_capability( uint8_t state, uint8_t stateType, uint8_t *arg
 
 // Looks up the trigger list for the given scan code (from the active layer)
 // NOTE: Calling function must handle the NULL pointer case
-nat_ptr_t *Macro_layerLookup( uint8_t scanCode, uint8_t latch_expire )
+nat_ptr_t *Macro_layerLookup( TriggerGuide *guide, uint8_t latch_expire )
 {
+	uint8_t scanCode = guide->scanCode;
+
+	// TODO Analog
+	// If a normal key, and not pressed, do a layer cache lookup
+	if ( guide->type == 0x00 && guide->state != 0x01 )
+	{
+		// Cached layer
+		var_uint_t cachedLayer = macroTriggerListLayerCache[ scanCode ];
+
+		// Lookup map, then layer
+		nat_ptr_t **map = (nat_ptr_t**)LayerIndex[ cachedLayer ].triggerMap;
+		const Layer *layer = &LayerIndex[ cachedLayer ];
+
+		return map[ scanCode - layer->first ];
+	}
+
 	// If no trigger macro is defined at the given layer, fallthrough to the next layer
 	for ( uint16_t layerIndex = 0; layerIndex < macroLayerIndexStackSize; layerIndex++ )
 	{
@@ -342,6 +390,9 @@ nat_ptr_t *Macro_layerLookup( uint8_t scanCode, uint8_t latch_expire )
 			  && scanCode >= layer->first
 			  && *map[ scanCode - layer->first ] != 0 )
 			{
+				// Set the layer cache
+				macroTriggerListLayerCache[ scanCode ] = macroLayerIndexStack[ layerIndex ];
+
 				return map[ scanCode - layer->first ];
 			}
 		}
@@ -359,6 +410,9 @@ nat_ptr_t *Macro_layerLookup( uint8_t scanCode, uint8_t latch_expire )
 	  && scanCode >= layer->first
 	  && *map[ scanCode - layer->first ] != 0 )
 	{
+		// Set the layer cache to default map
+		macroTriggerListLayerCache[ scanCode ] = 0;
+
 		return map[ scanCode - layer->first ];
 	}
 
@@ -366,6 +420,16 @@ nat_ptr_t *Macro_layerLookup( uint8_t scanCode, uint8_t latch_expire )
 	erro_msg("Scan Code has no defined Trigger Macro: ");
 	printHex( scanCode );
 	return 0;
+}
+
+
+// Update the scancode using a list of TriggerGuides
+// TODO Handle led state and analog
+inline void Macro_triggerState( void *triggers, uint8_t num )
+{
+	// Copy each of the TriggerGuides to the TriggerListBuffer
+	for ( uint8_t c = 0; c < num; c++ )
+		macroTriggerListBuffer[ macroTriggerListBufferSize++ ] = ((TriggerGuide*)triggers)[ c ];
 }
 
 
@@ -616,7 +680,7 @@ inline TriggerMacroVote Macro_evalLongTriggerMacroVote( TriggerGuide *key, Trigg
 
 
 // Evaluate/Update TriggerMacro
-inline TriggerMacroEval Macro_evalTriggerMacro( var_uint_t triggerMacroIndex )
+TriggerMacroEval Macro_evalTriggerMacro( var_uint_t triggerMacroIndex )
 {
 	// Lookup TriggerMacro
 	const TriggerMacro *macro = &TriggerMacroList[ triggerMacroIndex ];
@@ -836,7 +900,7 @@ inline void Macro_updateTriggerMacroPendingList()
 		uint8_t latch_expire = macroTriggerListBuffer[ key ].state == 0x03;
 
 		// Lookup Trigger List
-		nat_ptr_t *triggerList = Macro_layerLookup( macroTriggerListBuffer[ key ].scanCode, latch_expire );
+		nat_ptr_t *triggerList = Macro_layerLookup( &macroTriggerListBuffer[ key ], latch_expire );
 
 		// Number of Triggers in list
 		nat_ptr_t triggerListSize = triggerList[0];
@@ -1006,7 +1070,7 @@ inline void Macro_setup()
 void cliFunc_capList( char* args )
 {
 	print( NL );
-	info_msg("Capabilities List");
+	info_msg("Capabilities List ");
 	printHex( CapabilitiesNum );
 
 	// Iterate through all of the capabilities and display them
@@ -1168,6 +1232,16 @@ void cliFunc_keyRelease( char* args )
 			break;
 		}
 	}
+}
+
+void cliFunc_layerDebug( char *args )
+{
+	// Toggle layer debug mode
+	layerDebugMode = layerDebugMode ? 0 : 1;
+
+	print( NL );
+	info_msg("Layer Debug Mode: ");
+	printInt8( layerDebugMode );
 }
 
 void cliFunc_layerList( char* args )

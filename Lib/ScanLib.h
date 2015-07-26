@@ -1,4 +1,4 @@
-/* Copyright (C) 2013-2014 by Jacob Alexander
+/* Copyright (C) 2013-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,9 +23,7 @@
 // This include file decides which set of compiler family include files to use on typical Scan modules.
 // Additional includes should only be added to this file if they should be added to *all* Scan modules.
 
-
-#ifndef __SCANLIB_H
-#define __SCANLIB_H
+#pragma once
 
 // ----- Includes -----
 
@@ -34,7 +32,7 @@
 
 
 // ARM
-#if defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_)
+#if defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_) || defined(_mk20dx256vlh7_)
 
 #include <Lib/mk20dx.h>
 #include <Lib/delay.h>
@@ -48,9 +46,6 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
-
-#endif
-
 
 #endif
 

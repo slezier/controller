@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2014 by Jacob Alexander
+/* Copyright (C) 2011-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,8 +19,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef print_h__
-#define print_h__
+#pragma once
 
 // ----- Includes -----
 
@@ -54,11 +53,11 @@
 
 // Special Msg Constructs (Uses VT100 tags)
 #define dPrintMsg(colour_code_str,msg,...) \
-                          printstrs("\033[", colour_code_str, "m", msg, "\033[0m - ", __VA_ARGS__, NL, "\0\0\0")
+			  printstrs("\033[", colour_code_str, "m", msg, "\033[0m - ", __VA_ARGS__, NL, "\0\0\0")
 #define printMsgNL(colour_code_str,msg,str) \
-                          print("\033[" colour_code_str "m" msg "\033[0m - " str NL)
+			  print("\033[" colour_code_str "m" msg "\033[0m - " str NL)
 #define printMsg(colour_code_str,msg,str) \
-                          print("\033[" colour_code_str "m" msg "\033[0m - " str)
+			  print("\033[" colour_code_str "m" msg "\033[0m - " str)
 
 // Info Messages
 #define info_dPrint(...)  dPrintMsg        ("1;32",   "INFO",    __VA_ARGS__) // Info Msg
@@ -115,6 +114,4 @@ void revsStr      ( char*  in );
 uint16_t lenStr   ( char*  in );
 int16_t eqStr     ( char*  str1, char* str2 ); // Returns -1 if identical, last character of str1 comparison (0 if str1 is like str2)
 int numToInt      ( char* in ); // Returns the int representation of a string
-
-#endif
 

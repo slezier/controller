@@ -51,18 +51,18 @@
 //#define UART_DEBUG_UNKNOWN 1
 
 
-#define TX_STATE_BOTH_FREE_EVEN_FIRST	0
-#define TX_STATE_BOTH_FREE_ODD_FIRST	1
-#define TX_STATE_EVEN_FREE		2
-#define TX_STATE_ODD_FREE		3
-#define TX_STATE_NONE_FREE_EVEN_FIRST	4
-#define TX_STATE_NONE_FREE_ODD_FIRST	5
+#define TX_STATE_BOTH_FREE_EVEN_FIRST   0
+#define TX_STATE_BOTH_FREE_ODD_FIRST    1
+#define TX_STATE_EVEN_FREE              2
+#define TX_STATE_ODD_FREE               3
+#define TX_STATE_NONE_FREE_EVEN_FIRST   4
+#define TX_STATE_NONE_FREE_ODD_FIRST    5
 
-#define BDT_OWN		0x80
-#define BDT_DATA1	0x40
-#define BDT_DATA0	0x00
-#define BDT_DTS		0x08
-#define BDT_STALL	0x04
+#define BDT_OWN         0x80
+#define BDT_DATA1       0x40
+#define BDT_DATA0       0x00
+#define BDT_DTS         0x08
+#define BDT_STALL       0x04
 
 #define TX    1
 #define RX    0
@@ -72,23 +72,23 @@
 #define DATA1 1
 
 
-#define GET_STATUS		0
-#define CLEAR_FEATURE		1
-#define SET_FEATURE		3
-#define SET_ADDRESS		5
-#define GET_DESCRIPTOR		6
-#define SET_DESCRIPTOR		7
-#define GET_CONFIGURATION	8
-#define SET_CONFIGURATION	9
-#define GET_INTERFACE		10
-#define SET_INTERFACE		11
-#define SYNCH_FRAME		12
+#define GET_STATUS              0
+#define CLEAR_FEATURE           1
+#define SET_FEATURE             3
+#define SET_ADDRESS             5
+#define GET_DESCRIPTOR          6
+#define SET_DESCRIPTOR          7
+#define GET_CONFIGURATION       8
+#define SET_CONFIGURATION       9
+#define GET_INTERFACE           10
+#define SET_INTERFACE           11
+#define SYNCH_FRAME             12
 
-#define TX_STATE_BOTH_FREE_EVEN_FIRST	0
-#define TX_STATE_BOTH_FREE_ODD_FIRST	1
-#define TX_STATE_EVEN_FREE		2
-#define TX_STATE_ODD_FREE		3
-#define TX_STATE_NONE_FREE		4
+#define TX_STATE_BOTH_FREE_EVEN_FIRST   0
+#define TX_STATE_BOTH_FREE_ODD_FIRST    1
+#define TX_STATE_EVEN_FREE              2
+#define TX_STATE_ODD_FREE               3
+#define TX_STATE_NONE_FREE              4
 
 
 
@@ -96,9 +96,9 @@
 
 // ----- Macros -----
 
-#define BDT_PID(n)	(((n) >> 2) & 15)
+#define BDT_PID(n)      (((n) >> 2) & 15)
 
-#define BDT_DESC(count, data)	(BDT_OWN | BDT_DTS \
+#define BDT_DESC(count, data)   (BDT_OWN | BDT_DTS \
 				| ((data) ? BDT_DATA1 : BDT_DATA0) \
 				| ((count) << 16))
 
@@ -300,7 +300,7 @@ static void usb_setup()
 		data = reply_buffer;
 		break;
 	case 0x0082: // GET_STATUS (endpoint)
-		if (setup.wIndex > NUM_ENDPOINTS)
+		if ( setup.wIndex > NUM_ENDPOINTS )
 		{
 			// TODO: do we need to handle IN vs OUT here?
 			endpoint0_stall();
@@ -313,17 +313,31 @@ static void usb_setup()
 		data = reply_buffer;
 		datalen = 2;
 		break;
-	case 0x0102: // CLEAR_FEATURE (endpoint)
+	case 0x0100: // CLEAR_FEATURE (device)
+	case 0x0101: // CLEAR_FEATURE (interface)
+		// TODO: Currently ignoring, perhaps useful? -HaaTa
+		endpoint0_stall();
+		return;
+	case 0x0102: // CLEAR_FEATURE (interface)
 		i = setup.wIndex & 0x7F;
 		if ( i > NUM_ENDPOINTS || setup.wValue != 0 )
 		{
-			// TODO: do we need to handle IN vs OUT here?
 			endpoint0_stall();
 			return;
 		}
-		(*(uint8_t *)(&USB0_ENDPT0 + setup.wIndex * 4)) &= ~0x02;
+		//(*(uint8_t *)(&USB0_ENDPT0 + setup.wIndex * 4)) &= ~0x02;
 		// TODO: do we need to clear the data toggle here?
-		break;
+		//break;
+
+		// FIXME: Clearing causes keyboard to freeze, likely an invalid clear
+		// XXX: Ignoring seems to work, though this may not be the ideal behaviour -HaaTa
+		endpoint0_stall();
+		return;
+	case 0x0300: // SET_FEATURE (device)
+	case 0x0301: // SET_FEATURE (interface)
+		// TODO: Currently ignoring, perhaps useful? -HaaTa
+		endpoint0_stall();
+		return;
 	case 0x0302: // SET_FEATURE (endpoint)
 		i = setup.wIndex & 0x7F;
 		if ( i > NUM_ENDPOINTS || setup.wValue != 0 )
@@ -922,7 +936,7 @@ restart:
 			serial_phex(b->desc >> 16);
 			serial_print("\n");
 #endif
-			endpoint--;	// endpoint is index to zero-based arrays
+			endpoint--;     // endpoint is index to zero-based arrays
 
 			if ( stat & 0x08 )
 			{ // transmit
@@ -1098,11 +1112,16 @@ restart:
 
 
 
-void usb_init()
+uint8_t usb_init()
 {
 	#ifdef UART_DEBUG
 	print("USB INIT"NL);
 	#endif
+
+	// If no USB cable is attached, do not initialize usb
+	// XXX Test -HaaTa
+	//if ( USB0_OTGISTAT & USB_OTGSTAT_ID )
+	//      return 0;
 
 	// Clear out endpoints table
 	for ( int i = 0; i <= NUM_ENDPOINTS * 4; i++ )
@@ -1147,6 +1166,8 @@ void usb_init()
 
 	// enable d+ pullup
 	USB0_CONTROL = USB_CONTROL_DPPULLUPNONOTG;
+
+	return 1;
 }
 
 // return 0 if the USB is not configured, or the configuration

@@ -20,8 +20,26 @@
 #| You _MUST_ clean the build directory if you change this value
 #|
 set( CHIP
-	"mk20dx128vlf5"    # McHCK    mk20dx128vlf5
+	"mk20dx128vlf5"    # McHCK       mk20dx128vlf5
+#	"mk20dx256vlh7"    # Kiibohd-dfu mk20dx256vlh7
+	CACHE STRING "Chip"
 )
+
+
+
+###
+# Compiler Selection
+#
+
+#| *** EXPERIMENTAL ***
+#| Stick with gcc unless you know what you're doing
+#| Currently only arm is supported with clang
+set( COMPILER
+	"gcc"   # arm-none-eabi-gcc / avr-gcc - Default
+#       "clang" # arm-none-eabi
+	CACHE STRING "Compiler Type"
+)
+
 
 
 ###
@@ -51,6 +69,14 @@ set( SRCS
 	usb.c
 )
 
+# Only compile in if necessary
+if( CHIP STREQUAL "mk20dx256vlh7" )
+	set( SRCS ${SRCS}
+		debug.c
+	)
+endif()
+
+
 message( STATUS "Bootloader Source Files:" )
 message( "${SRCS}" )
 
@@ -65,7 +91,10 @@ endforeach()
 ###
 # Directory Includes
 #
-include_directories( ${CMAKE_SOURCE_DIR}/../Lib )
+include_directories (
+	${CMAKE_SOURCE_DIR}/../Lib
+	${CMAKE_SOURCE_DIR}
+)
 
 
 

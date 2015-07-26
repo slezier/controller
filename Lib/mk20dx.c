@@ -1,7 +1,7 @@
 /* Teensyduino Core Library
  * http://www.pjrc.com/teensy/
  * Copyright (c) 2013 PJRC.COM, LLC.
- * Modifications by Jacob Alexander 2014
+ * Modifications by Jacob Alexander 2014-2015
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -28,6 +28,16 @@
  * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+// ----- Includes -----
+
+// Debug Includes
+#if defined(_bootloader_)
+#include <inttypes.h>
+#include <debug.h>
+#else
+#include <print.h>
+#endif
 
 // Local Includes
 #include "mk20dx.h"
@@ -60,6 +70,7 @@ void ResetHandler();
 // NVIC - Default ISR
 void fault_isr()
 {
+	print("Fault!" NL );
 	while ( 1 )
 	{
 		// keep polling some communication while in fault
@@ -85,12 +96,47 @@ void systick_default_isr()
 }
 
 
+// NVIC - Non-Maskable Interrupt ISR
+void nmi_default_isr()
+{
+	print("NMI!" NL );
+}
+
+
+// NVIC - Hard Fault ISR
+void hard_fault_default_isr()
+{
+	print("Hard Fault!" NL );
+}
+
+
+// NVIC - Memory Manager Fault ISR
+void memmanage_fault_default_isr()
+{
+	print("Memory Manager Fault!" NL );
+}
+
+
+// NVIC - Bus Fault ISR
+void bus_fault_default_isr()
+{
+	print("Bus Fault!" NL );
+}
+
+
+// NVIC - Usage Fault ISR
+void usage_fault_default_isr()
+{
+	print("Usage Fault!" NL );
+}
+
+
 // NVIC - Default ISR/Vector Linking
-void nmi_isr()              __attribute__ ((weak, alias("unused_isr")));
-void hard_fault_isr()       __attribute__ ((weak, alias("unused_isr")));
-void memmanage_fault_isr()  __attribute__ ((weak, alias("unused_isr")));
-void bus_fault_isr()        __attribute__ ((weak, alias("unused_isr")));
-void usage_fault_isr()      __attribute__ ((weak, alias("unused_isr")));
+void nmi_isr()              __attribute__ ((weak, alias("nmi_default_isr")));
+void hard_fault_isr()       __attribute__ ((weak, alias("hard_fault_default_isr")));
+void memmanage_fault_isr()  __attribute__ ((weak, alias("memmanage_fault_default_isr")));
+void bus_fault_isr()        __attribute__ ((weak, alias("bus_fault_default_isr")));
+void usage_fault_isr()      __attribute__ ((weak, alias("usage_fault_default_isr")));
 void svcall_isr()           __attribute__ ((weak, alias("unused_isr")));
 void debugmonitor_isr()     __attribute__ ((weak, alias("unused_isr")));
 void pendablesrvreq_isr()   __attribute__ ((weak, alias("unused_isr")));
@@ -246,7 +292,7 @@ void (* const gVectors[])() =
 	portd_isr,                                      // 59 Pin detect (Port D)
 	porte_isr,                                      // 60 Pin detect (Port E)
 	software_isr,                                   // 61 Software interrupt
-#elif defined(_mk20dx256_)
+#elif defined(_mk20dx256_) || defined(_mk20dx256vlh7_)
 	dma_ch0_isr,                                    // 16 DMA channel 0 transfer complete
 	dma_ch1_isr,                                    // 17 DMA channel 1 transfer complete
 	dma_ch2_isr,                                    // 18 DMA channel 2 transfer complete
@@ -377,22 +423,46 @@ const uint8_t flashconfigbytes[16] = {
 	0xFF, // EEPROM Protection Byte FEPROT
 	0xFF, // Data Flash Protection Byte FDPROT
 };
+#elif defined(_mk20dx256vlh7_) && defined(_bootloader_)
+// XXX Byte labels may be in incorrect positions, double check before modifying
+//     FSEC is in correct location -Jacob
+__attribute__ ((section(".flashconfig"), used))
+const uint8_t flashconfigbytes[16] = {
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // Backdoor Verif Key 28.3.1
+
+	//
+	// Protecting the first 8k of Flash memory from being over-written while running (bootloader protection)
+	// Still possible to overwrite the bootloader using an external flashing device
+	// For more details see:
+	//  http://cache.freescale.com/files/training/doc/dwf/AMF_ENT_T1031_Boston.pdf (page 8)
+	//  http://cache.freescale.com/files/microcontrollers/doc/app_note/AN4507.pdf
+	//  http://cache.freescale.com/files/32bit/doc/ref_manual/K20P64M72SF1RM.pdf (28.34.6)
+	//
+	0xFF, 0xFF, 0xFF, 0xFE, // Program Flash Protection Bytes FPROT0-3
+
+	0xBE, // Flash security byte FSEC
+	0x03, // Flash nonvolatile option byte FOPT
+	0xFF, // EEPROM Protection Byte FEPROT
+	0xFF, // Data Flash Protection Byte FDPROT
+};
 #endif
 
 
 
 // ----- Functions -----
 
+#if ( defined(_mk20dx128vlf5_) || defined(_mk20dx256vlh7_) ) && defined(_bootloader_) // Bootloader Section
 __attribute__((noreturn))
 static inline void jump_to_app( uintptr_t addr )
 {
-        // addr is in r0
-        __asm__("ldr sp, [%[addr], #0]\n"
-                "ldr pc, [%[addr], #4]"
-                :: [addr] "r" (addr));
-        // NOTREACHED
-        __builtin_unreachable();
+	// addr is in r0
+	__asm__("ldr sp, [%[addr], #0]\n"
+		"ldr pc, [%[addr], #4]"
+		:: [addr] "r" (addr));
+	// NOTREACHED
+	__builtin_unreachable();
 }
+#endif
 
 void *memset( void *addr, int val, unsigned int len )
 {
@@ -430,19 +500,30 @@ void *memcpy( void *dst, const void *src, unsigned int len )
 __attribute__ ((section(".startup")))
 void ResetHandler()
 {
-	// Disable Watchdog
-	WDOG_UNLOCK = WDOG_UNLOCK_SEQ1;
-	WDOG_UNLOCK = WDOG_UNLOCK_SEQ2;
-	WDOG_STCTRLH = WDOG_STCTRLH_ALLOWUPDATE;
-
-#if defined(_mk20dx128vlf5_) && defined(_bootloader_) // Bootloader Section
+#if ( defined(_mk20dx128vlf5_) || defined(_mk20dx256vlh7_) ) && defined(_bootloader_) // Bootloader Section
 	extern uint32_t _app_rom;
 
 	// We treat _app_rom as pointer to directly read the stack
 	// pointer and check for valid app code.  This is no fool
 	// proof method, but it should help for the first flash.
-	if ( RCM_SRS0 & 0x40 || _app_rom == 0xffffffff ||
-	  memcmp( (uint8_t*)&VBAT, sys_reset_to_loader_magic, sizeof(sys_reset_to_loader_magic) ) == 0 ) // Check for soft reload
+	//
+	// Purposefully disabling the watchdog *after* the reset check this way
+	// if the chip goes into an odd state we'll reset to the bootloader (invalid firmware image)
+	// RCM_SRS0 & 0x20
+	//
+	// Also checking for ARM lock-up signal (invalid firmware image)
+	// RCM_SRS1 & 0x02
+	if (    // PIN  (External Reset Pin/Switch)
+		   RCM_SRS0 & 0x40
+		// WDOG (Watchdog timeout)
+		|| RCM_SRS0 & 0x20
+		// LOCKUP (ARM Core LOCKUP event)
+		|| RCM_SRS1 & 0x02
+		// Blank flash check
+		|| _app_rom == 0xffffffff
+		// Software reset
+		|| memcmp( (uint8_t*)&VBAT, sys_reset_to_loader_magic, sizeof(sys_reset_to_loader_magic) ) == 0
+	)
 	{
 		memset( (uint8_t*)&VBAT, 0, sizeof(VBAT) );
 	}
@@ -453,16 +534,20 @@ void ResetHandler()
 		jump_to_app( addr );
 	}
 #endif
+	// Disable Watchdog
+	WDOG_UNLOCK = WDOG_UNLOCK_SEQ1;
+	WDOG_UNLOCK = WDOG_UNLOCK_SEQ2;
+	WDOG_STCTRLH = WDOG_STCTRLH_ALLOWUPDATE;
 
-	uint32_t *src = &_etext;
-	uint32_t *dest = &_sdata;
+	uint32_t *src = (uint32_t*)&_etext;
+	uint32_t *dest = (uint32_t*)&_sdata;
 
 	// Enable clocks to always-used peripherals
 	SIM_SCGC5 = 0x00043F82; // Clocks active to all GPIO
 	SIM_SCGC6 = SIM_SCGC6_FTM0 | SIM_SCGC6_FTM1 | SIM_SCGC6_ADC0 | SIM_SCGC6_FTFL;
 #if defined(_mk20dx128_)
 	SIM_SCGC6 |= SIM_SCGC6_RTC;
-#elif defined(_mk20dx256_)
+#elif defined(_mk20dx256_) || defined(_mk20dx256vlh7_)
 	SIM_SCGC3 = SIM_SCGC3_ADC1 | SIM_SCGC3_FTM2;
 	SIM_SCGC6 |= SIM_SCGC6_RTC;
 #endif
@@ -483,11 +568,11 @@ void ResetHandler()
 	}
 
 	// Prepare RAM
-	while ( dest < &_edata ) *dest++ = *src++;
-	dest = &_sbss;
-	while ( dest < &_ebss ) *dest++ = 0;
+	while ( dest < (uint32_t*)&_edata ) *dest++ = *src++;
+	dest = (uint32_t*)&_sbss;
+	while ( dest < (uint32_t*)&_ebss ) *dest++ = 0;
 
-// MCHCK
+// MCHCK / Kiibohd-dfu
 #if defined(_mk20dx128vlf5_)
 	// Default all interrupts to medium priority level
 	for ( unsigned int i = 0; i < NVIC_NUM_INTERRUPTS; i++ )
@@ -495,20 +580,21 @@ void ResetHandler()
 		NVIC_SET_PRIORITY( i, 128 );
 	}
 
-        // FLL at 48MHz
+	// FLL at 48MHz
 	MCG_C4 = MCG_C4_DMX32 | MCG_C4_DRST_DRS( 1 );
 
 	// USB Clock and FLL select
 	SIM_SOPT2 = SIM_SOPT2_USBSRC | SIM_SOPT2_TRACECLKSEL;
 
-// Teensy 3.0 and 3.1
+// Teensy 3.0 and 3.1 and Kiibohd-dfu (mk20dx256vlh7)
 #else
-	unsigned int i;
-
-	SCB_VTOR = 0;	// use vector table in flash
+#if defined(_mk20dx128_) || defined(_mk20dx256_)
+	// use vector table in flash
+	SCB_VTOR = 0;
+#endif
 
 	// default all interrupts to medium priority level
-	for ( i = 0; i < NVIC_NUM_INTERRUPTS; i++ )
+	for ( unsigned int i = 0; i < NVIC_NUM_INTERRUPTS; i++ )
 	{
 		NVIC_SET_PRIORITY( i, 128 );
 	}
@@ -533,11 +619,21 @@ void ResetHandler()
 	while ( (MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST( 2 ) );
 
 	// now we're in FBE mode
+#if F_CPU == 72000000
+	// config PLL input for 16 MHz Crystal / 8 = 2 MHz
+	MCG_C5 = MCG_C5_PRDIV0( 7 );
+#else
 	// config PLL input for 16 MHz Crystal / 4 = 4 MHz
 	MCG_C5 = MCG_C5_PRDIV0( 3 );
+#endif
 
+#if F_CPU == 72000000
+	// config PLL for 72 MHz output (36 * 2 MHz Ext PLL)
+	MCG_C6 = MCG_C6_PLLS | MCG_C6_VDIV0( 12 );
+#else
 	// config PLL for 96 MHz output
 	MCG_C6 = MCG_C6_PLLS | MCG_C6_VDIV0( 0 );
+#endif
 
 	// wait for PLL to start using xtal as its input
 	while ( !(MCG_S & MCG_S_PLLST) );
@@ -549,6 +645,9 @@ void ResetHandler()
 #if F_CPU == 96000000
 	// config divisors: 96 MHz core, 48 MHz bus, 24 MHz flash
 	SIM_CLKDIV1 = SIM_CLKDIV1_OUTDIV1( 0 ) | SIM_CLKDIV1_OUTDIV2( 1 ) | SIM_CLKDIV1_OUTDIV4( 3 );
+#elif F_CPU == 72000000
+	// config divisors: 72 MHz core, 36 MHz bus, 24 MHz flash
+	SIM_CLKDIV1 = SIM_CLKDIV1_OUTDIV1( 0 ) | SIM_CLKDIV1_OUTDIV2( 1 ) | SIM_CLKDIV1_OUTDIV4( 2 );
 #elif F_CPU == 48000000
 	// config divisors: 48 MHz core, 48 MHz bus, 24 MHz flash
 	SIM_CLKDIV1 = SIM_CLKDIV1_OUTDIV1( 1 ) | SIM_CLKDIV1_OUTDIV2( 1 ) | SIM_CLKDIV1_OUTDIV4( 3 );
@@ -556,7 +655,7 @@ void ResetHandler()
 	// config divisors: 24 MHz core, 24 MHz bus, 24 MHz flash
 	SIM_CLKDIV1 = SIM_CLKDIV1_OUTDIV1( 3 ) | SIM_CLKDIV1_OUTDIV2( 3 ) | SIM_CLKDIV1_OUTDIV4( 3 );
 #else
-#error "Error, F_CPU must be 96000000, 48000000, or 24000000"
+#error "Error, F_CPU must be 96000000, 72000000, 48000000, or 24000000"
 #endif
 	// switch to PLL as clock source, FLL input = 16 MHz / 512
 	MCG_C1 = MCG_C1_CLKS( 0 ) | MCG_C1_FRDIV( 4 );
@@ -565,8 +664,13 @@ void ResetHandler()
 	while ( (MCG_S & MCG_S_CLKST_MASK) != MCG_S_CLKST( 3 ) );
 
 	// now we're in PEE mode
+#if F_CPU == 72000000
+	// configure USB for 48 MHz clock
+	SIM_CLKDIV2 = SIM_CLKDIV2_USBDIV( 2 ) | SIM_CLKDIV2_USBFRAC; // USB = 72 MHz PLL / 1.5
+#else
 	// configure USB for 48 MHz clock
 	SIM_CLKDIV2 = SIM_CLKDIV2_USBDIV( 1 ); // USB = 96 MHz PLL / 2
+#endif
 
 	// USB uses PLL clock, trace is CPU clock, CLKOUT=OSCERCLK0
 	SIM_SOPT2 = SIM_SOPT2_USBSRC | SIM_SOPT2_PLLFLLSEL | SIM_SOPT2_TRACECLKSEL | SIM_SOPT2_CLKOUTSEL( 6 );

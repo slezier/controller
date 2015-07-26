@@ -1,7 +1,7 @@
 /* Teensyduino Core Library
  * http://www.pjrc.com/teensy/
  * Copyright (c) 2013 PJRC.COM, LLC.
- * Modifications by Jacob Alexander 2013-2014
+ * Modifications by Jacob Alexander 2013-2015
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -29,8 +29,7 @@
  * SOFTWARE.
  */
 
-#ifndef __DELAY_H
-#define __DELAY_H
+#pragma once
 
 // ----- System Includes -----
 
@@ -63,15 +62,17 @@ static inline void delayMicroseconds(uint32_t usec)
 {
 #if F_CPU == 96000000
 	uint32_t n = usec << 5;
+#elif F_CPU == 72000000
+	uint32_t n = usec << 5; // XXX Not accurate, assembly snippet needs to be updated
 #elif F_CPU == 48000000
 	uint32_t n = usec << 4;
 #elif F_CPU == 24000000
 	uint32_t n = usec << 3;
 #endif
 	asm volatile(
-		"L_%=_delayMicroseconds:"		"\n\t"
-		"subs   %0, #1"				"\n\t"
-		"bne    L_%=_delayMicroseconds"		"\n"
+		"L_%=_delayMicroseconds:"               "\n\t"
+		"subs   %0, #1"                         "\n\t"
+		"bne    L_%=_delayMicroseconds"         "\n"
 		: "+r" (n) :
 	);
 }
@@ -82,6 +83,4 @@ void yield(void) __attribute__ ((weak));
 uint32_t micros(void);
 
 void delay(uint32_t ms);
-
-#endif
 

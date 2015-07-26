@@ -1,7 +1,7 @@
 /* Teensyduino Core Library
  * http://www.pjrc.com/teensy/
  * Copyright (c) 2013 PJRC.COM, LLC.
- * Modified by Jacob Alexander (2013-2014)
+ * Modified by Jacob Alexander (2013-2015)
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -29,8 +29,7 @@
  * SOFTWARE.
  */
 
-#ifndef _usb_desc_h_
-#define _usb_desc_h_
+#pragma once
 
 // ----- Includes -----
 
@@ -45,10 +44,10 @@
 
 // ----- Defines -----
 
-#define ENDPOINT_UNUSED			0x00
-#define ENDPOINT_TRANSIMIT_ONLY		0x15
-#define ENDPOINT_RECEIVE_ONLY		0x19
-#define ENDPOINT_TRANSMIT_AND_RECEIVE	0x1D
+#define ENDPOINT_UNUSED                 0x00
+#define ENDPOINT_TRANSIMIT_ONLY         0x15
+#define ENDPOINT_RECEIVE_ONLY           0x19
+#define ENDPOINT_TRANSMIT_AND_RECEIVE   0x1D
 
 
 #define DEVICE_CLASS            0x00 // Keep 0x00 to indicate each sub device will indicate what it is
@@ -98,23 +97,23 @@
 #define MOUSE_DESC_OFFSET         (9 + 9+9+7 + 9+9+7 + 8+9+5+5+4+5+7+9+7+7 + 9)
 #define JOYSTICK_DESC_OFFSET      (9 + 9+9+7 + 9+9+7 + 8+9+5+5+4+5+7+9+7+7 + 9+9+7 + 9)
 
-#define ENDPOINT1_CONFIG	ENDPOINT_TRANSIMIT_ONLY
-#define ENDPOINT2_CONFIG	ENDPOINT_TRANSIMIT_ONLY
-#define ENDPOINT3_CONFIG	ENDPOINT_TRANSIMIT_ONLY
-#define ENDPOINT4_CONFIG	ENDPOINT_RECEIVE_ONLY
-#define ENDPOINT5_CONFIG	ENDPOINT_TRANSIMIT_ONLY
-#define ENDPOINT6_CONFIG	ENDPOINT_TRANSIMIT_ONLY
-#define ENDPOINT7_CONFIG	ENDPOINT_TRANSIMIT_ONLY
+#define ENDPOINT1_CONFIG        ENDPOINT_TRANSIMIT_ONLY
+#define ENDPOINT2_CONFIG        ENDPOINT_TRANSIMIT_ONLY
+#define ENDPOINT3_CONFIG        ENDPOINT_TRANSIMIT_ONLY
+#define ENDPOINT4_CONFIG        ENDPOINT_RECEIVE_ONLY
+#define ENDPOINT5_CONFIG        ENDPOINT_TRANSIMIT_ONLY
+#define ENDPOINT6_CONFIG        ENDPOINT_TRANSIMIT_ONLY
+#define ENDPOINT7_CONFIG        ENDPOINT_TRANSIMIT_ONLY
 
 
 
 // ----- Enumerations -----
 
 typedef struct {
-	uint16_t	wValue;
-	uint16_t	wIndex;
-	const uint8_t	*addr;
-	uint16_t	length;
+	uint16_t        wValue;
+	uint16_t        wIndex;
+	const uint8_t   *addr;
+	uint16_t        length;
 } usb_descriptor_list_t;
 
 
@@ -125,7 +124,4 @@ typedef struct {
 extern const uint8_t usb_endpoint_config_table[NUM_ENDPOINTS];
 
 extern const usb_descriptor_list_t usb_descriptor_list[];
-
-
-#endif
 

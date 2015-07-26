@@ -1,4 +1,4 @@
-/* Copyright (C) 2014 by Jacob Alexander
+/* Copyright (C) 2014-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,8 +19,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef cli_h__
-#define cli_h__
+#pragma once
 
 // ----- Includes -----
 
@@ -34,9 +33,9 @@
 // ----- Defines -----
 
 #define CLILineBufferMaxSize 100
-#define CLIMaxDictionaries   5
+#define CLIMaxDictionaries   10
 #define CLIEntryTabAlign     13
-
+#define CLIMaxHistorySize    10
 
 
 // ----- Macros -----
@@ -55,7 +54,7 @@
 	const PROGMEM char name##CLIDict_DescEntry[] = description;
 
 // ARM is easy :P
-#elif defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_) // ARM
+#elif defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_) || defined(_mk20dx256vlh7_) // ARM
 #define CLIDict_Def(name,description) \
 	const char name##Name[] = description; \
 	const CLIDictItem name[]
@@ -67,6 +66,8 @@
 	const char name##CLIDict_DescEntry[] = description;
 #endif
 
+#define RING_PREV(i) CLI_wrap(i - 1, 0, CLIMaxHistorySize - 1)
+#define RING_NEXT(i) CLI_wrap(i + 1, 0, CLIMaxHistorySize - 1)
 
 
 // ----- Structs -----
@@ -90,6 +91,13 @@ CLIDictItem *CLIDict     [CLIMaxDictionaries];
 char*        CLIDictNames[CLIMaxDictionaries];
 uint8_t      CLIDictionariesUsed;
 
+// History
+char CLIHistoryBuffer[CLIMaxHistorySize][CLILineBufferMaxSize];
+uint8_t CLIHistoryHead;
+uint8_t CLIHistoryTail;
+int8_t CLIHistoryCurrent;
+
+// Debug
 uint8_t CLILEDState;
 uint8_t CLIHexDebugMode;
 
@@ -102,12 +110,16 @@ void CLI_process();
 void CLI_registerDictionary( const CLIDictItem *cmdDict, const char* dictName );
 void CLI_argumentIsolation( char* string, char** first, char** second );
 
+int CLI_wrap( int x, int low, int high );
 void CLI_commandLookup();
 void CLI_tabCompletion();
+void CLI_saveHistory( char *buff );
+void CLI_retreiveHistory( int index );
 
 // CLI Command Functions
 void cliFunc_arch    ( char* args );
 void cliFunc_chip    ( char* args );
+void cliFunc_clear   ( char* args );
 void cliFunc_cliDebug( char* args );
 void cliFunc_device  ( char* args );
 void cliFunc_help    ( char* args );
@@ -116,7 +128,4 @@ void cliFunc_reload  ( char* args );
 void cliFunc_reset   ( char* args );
 void cliFunc_restart ( char* args );
 void cliFunc_version ( char* args );
-
-
-#endif
 

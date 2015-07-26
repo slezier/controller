@@ -1,4 +1,4 @@
-/* Copyright (C) 2014 by Jacob Alexander
+/* Copyright (C) 2014-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,6 +26,7 @@
 
 // Project Includes
 #include <cli.h>
+#include <kll.h>
 #include <led.h>
 #include <print.h>
 #include <macro.h>
@@ -35,6 +36,14 @@
 
 // Matrix Configuration
 #include <matrix.h>
+
+
+
+// ----- Defines -----
+
+#if ( DebounceThrottleDiv_define > 0 )
+nat_ptr_t Matrix_divCounter = 0;
+#endif
 
 
 
@@ -72,6 +81,9 @@ uint16_t matrixDebugStateCounter = 0;
 uint16_t matrixMaxScans  = 0;
 uint16_t matrixCurScans  = 0;
 uint16_t matrixPrevScans = 0;
+
+// System Timer used for delaying debounce decisions
+extern volatile uint32_t systick_millis_count;
 
 
 
@@ -188,10 +200,11 @@ void Matrix_setup()
 	// Clear out Debounce Array
 	for ( uint8_t item = 0; item < Matrix_maxKeys; item++ )
 	{
-		Matrix_scanArray[ item ].prevState     = KeyState_Off;
-		Matrix_scanArray[ item ].curState      = KeyState_Off;
-		Matrix_scanArray[ item ].activeCount   = 0;
-		Matrix_scanArray[ item ].inactiveCount = 0xFFFF; // Start at 'off' steady state
+		Matrix_scanArray[ item ].prevState        = KeyState_Off;
+		Matrix_scanArray[ item ].curState         = KeyState_Off;
+		Matrix_scanArray[ item ].activeCount      = 0;
+		Matrix_scanArray[ item ].inactiveCount    = DebounceDivThreshold_define; // Start at 'off' steady state
+		Matrix_scanArray[ item ].prevDecisionTime = 0;
 	}
 
 	// Clear scan stats counters
@@ -232,6 +245,15 @@ void Matrix_keyPositionDebug( KeyPosition pos )
 // NOTE: scanNum should be reset to 0 after a USB send (to reset all the counters)
 void Matrix_scan( uint16_t scanNum )
 {
+#if ( DebounceThrottleDiv_define > 0 )
+	// Scan-rate throttling
+	// By scanning using a divider, the scan rate slowed down
+	// DebounceThrottleDiv_define == 1 means -> /2 or half scan rate
+	// This helps with bouncy switches on fast uCs
+	if ( !( Matrix_divCounter++ & (1 << ( DebounceThrottleDiv_define - 1 )) ) )
+		return;
+#endif
+
 	// Increment stats counters
 	if ( scanNum > matrixMaxScans ) matrixMaxScans = scanNum;
 	if ( scanNum == 0 )
@@ -243,6 +265,9 @@ void Matrix_scan( uint16_t scanNum )
 	{
 		matrixCurScans++;
 	}
+
+	// Read systick for event scheduling
+	uint8_t currentTime = (uint8_t)systick_millis_count;
 
 	// For each strobe, scan each of the sense pins
 	for ( uint8_t strobe = 0; strobe < Matrix_colsNum; strobe++ )
@@ -275,23 +300,28 @@ void Matrix_scan( uint16_t scanNum )
 			if ( Matrix_pin( Matrix_rows[ sense ], Type_Sense ) )
 			{
 				// Only update if not going to wrap around
-				if ( state->activeCount < 0xFFFF ) state->activeCount += 1;
+				if ( state->activeCount < DebounceDivThreshold_define ) state->activeCount += 1;
 				state->inactiveCount >>= 1;
 			}
 			// Signal Not Detected
 			else
 			{
 				// Only update if not going to wrap around
-				if ( state->inactiveCount < 0xFFFF ) state->inactiveCount += 1;
+				if ( state->inactiveCount < DebounceDivThreshold_define ) state->inactiveCount += 1;
 				state->activeCount >>= 1;
 			}
 
 			// Check for state change if it hasn't been set
+			// But only if enough time has passed since last state change
 			// Only check if the minimum number of scans has been met
 			//   the current state is invalid
 			//   and either active or inactive count is over the debounce threshold
 			if ( state->curState == KeyState_Invalid )
 			{
+				// Determine time since last decision
+				uint8_t lastTransition = currentTime - state->prevDecisionTime;
+
+				// Attempt state transition
 				switch ( state->prevState )
 				{
 				case KeyState_Press:
@@ -302,6 +332,15 @@ void Matrix_scan( uint16_t scanNum )
 					}
 					else
 					{
+						// If not enough time has passed since Hold
+						// Keep previous state
+						if ( lastTransition < MinDebounceTime_define )
+						{
+							//warn_print("FAST Release stopped");
+							state->curState = state->prevState;
+							continue;
+						}
+
 						state->curState = KeyState_Release;
 					}
 					break;
@@ -310,6 +349,15 @@ void Matrix_scan( uint16_t scanNum )
 				case KeyState_Off:
 					if ( state->activeCount > state->inactiveCount )
 					{
+						// If not enough time has passed since Hold
+						// Keep previous state
+						if ( lastTransition < MinDebounceTime_define )
+						{
+							//warn_print("FAST Press stopped");
+							state->curState = state->prevState;
+							continue;
+						}
+
 						state->curState = KeyState_Press;
 					}
 					else
@@ -323,6 +371,9 @@ void Matrix_scan( uint16_t scanNum )
 					erro_print("Matrix scan bug!! Report me!");
 					break;
 				}
+
+				// Update decision time
+				state->prevDecisionTime = currentTime;
 
 				// Send keystate to macro module
 				Macro_keyState( key, state->curState );

@@ -1,5 +1,5 @@
 /* Copyright (c) 2011,2012 Simon Schubert <2@0x2c.org>.
- * Modifications by Jacob Alexander 2014 <haata@kiibohd.com>
+ * Modifications by Jacob Alexander 2014-2015 <haata@kiibohd.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -15,8 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __MCHCK_H
-#define __MCHCK_H
+#pragma once
 
 // ----- Compiler Includes -----
 
@@ -37,13 +36,11 @@
 
 #include "mchck-cdefs.h"
 
-extern uint32_t _sidata, _sdata, _edata, _sbss, _ebss, _app_rom;
+extern uint32_t _sidata, _sdata, _edata, _sbss, _ebss, _app_rom, _app_rom_end, _bootloader;
 
 #include "ftfl.h"
 #include "usbotg.h"
 #include "sim.h"
 #include "flash.h"
 #include "usb.h"
-
-#endif
 

@@ -1,4 +1,4 @@
-/* Copyright (C) 2013-2014 by Jacob Alexander
+/* Copyright (C) 2013-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -19,8 +19,7 @@
  * THE SOFTWARE.
  */
 
-#ifndef __output_com_h
-#define __output_com_h
+#pragma once
 
 // ----- Includes -----
 
@@ -79,12 +78,17 @@ extern          uint8_t  USBKeys_Idle_Count;
 
 extern USBKeyChangeState USBKeys_Changed;
 
+extern          uint8_t  Output_Available; // 0 - Output module not fully functional, 1 - Output module working
+
+extern          uint8_t  Output_DebugMode; // 0 - Debug disabled, 1 - Debug enabled
+
 
 
 // ----- Capabilities -----
 
 // Output capabilities
 void Output_consCtrlSend_capability( uint8_t state, uint8_t stateType, uint8_t *args );
+void Output_noneSend_capability( uint8_t state, uint8_t stateType, uint8_t *args );
 void Output_sysCtrlSend_capability( uint8_t state, uint8_t stateType, uint8_t *args );
 void Output_usbCodeSend_capability( uint8_t state, uint8_t stateType, uint8_t *args );
 
@@ -110,6 +114,4 @@ unsigned int Output_availablechar();
 int Output_getchar();
 int Output_putchar( char c );
 int Output_putstr( char* str );
-
-#endif
 

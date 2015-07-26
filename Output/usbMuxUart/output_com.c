@@ -1,4 +1,4 @@
-/* Copyright (C) 2014 by Jacob Alexander
+/* Copyright (C) 2014-2015 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,11 +32,11 @@
 
 // USB Includes
 #if defined(_at90usb162_) || defined(_atmega32u4_) || defined(_at90usb646_) || defined(_at90usb1286_)
-#elif defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_)
-#include "../uartOut/arm/uart_serial.h"
-#include "../pjrcUSB/arm/usb_dev.h"
-#include "../pjrcUSB/arm/usb_keyboard.h"
-#include "../pjrcUSB/arm/usb_serial.h"
+#elif defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_) || defined(_mk20dx256vlh7_)
+#include <arm/uart_serial.h>
+#include <arm/usb_dev.h>
+#include <arm/usb_keyboard.h>
+#include <arm/usb_serial.h>
 #endif
 
 // Local Includes
@@ -96,20 +96,20 @@ CLIDict_Def( outputCLIDict, "USB Module Commands" ) = {
 // Which modifier keys are currently pressed
 // 1=left ctrl,    2=left shift,   4=left alt,    8=left gui
 // 16=right ctrl, 32=right shift, 64=right alt, 128=right gui
-         uint8_t  USBKeys_Modifiers    = 0;
-         uint8_t  USBKeys_ModifiersCLI = 0; // Separate CLI send buffer
+	uint8_t  USBKeys_Modifiers    = 0;
+	uint8_t  USBKeys_ModifiersCLI = 0; // Separate CLI send buffer
 
 // Currently pressed keys, max is defined by USB_MAX_KEY_SEND
-         uint8_t  USBKeys_Keys   [USB_NKRO_BITFIELD_SIZE_KEYS];
-         uint8_t  USBKeys_KeysCLI[USB_NKRO_BITFIELD_SIZE_KEYS]; // Separate CLI send buffer
+	uint8_t  USBKeys_Keys   [USB_NKRO_BITFIELD_SIZE_KEYS];
+	uint8_t  USBKeys_KeysCLI[USB_NKRO_BITFIELD_SIZE_KEYS]; // Separate CLI send buffer
 
 // System Control and Consumer Control 1KRO containers
-         uint8_t  USBKeys_SysCtrl;
-         uint16_t USBKeys_ConsCtrl;
+	uint8_t  USBKeys_SysCtrl;
+	uint16_t USBKeys_ConsCtrl;
 
 // The number of keys sent to the usb in the array
-         uint8_t  USBKeys_Sent    = 0;
-         uint8_t  USBKeys_SentCLI = 0;
+	uint8_t  USBKeys_Sent    = 0;
+	uint8_t  USBKeys_SentCLI = 0;
 
 // 1=num lock, 2=caps lock, 4=scroll lock, 8=compose, 16=kana
 volatile uint8_t  USBKeys_LEDs = 0;
@@ -125,14 +125,78 @@ USBKeyChangeState USBKeys_Changed = USBKeyChangeState_None;
 
 // the idle configuration, how often we send the report to the
 // host (ms * 4) even when it hasn't changed
-         uint8_t  USBKeys_Idle_Config = 125;
+	uint8_t  USBKeys_Idle_Config = 125;
 
 // count until idle timeout
-         uint8_t  USBKeys_Idle_Count = 0;
+	uint8_t  USBKeys_Idle_Count = 0;
+
+// Indicates whether the Output module is fully functional
+// 0 - Not fully functional, 1 - Fully functional
+// 0 is often used to show that a USB cable is not plugged in (but has power)
+	uint8_t  Output_Available = 0;
+
+// Debug control variable for Output modules
+// 0 - Debug disabled (default)
+// 1 - Debug enabled
+	 uint8_t  Output_DebugMode = 0;
 
 
 
 // ----- Capabilities -----
+
+// Set Boot Keyboard Protocol
+void Output_kbdProtocolBoot_capability( uint8_t state, uint8_t stateType, uint8_t *args )
+{
+	// Display capability name
+	if ( stateType == 0xFF && state == 0xFF )
+	{
+		print("Output_kbdProtocolBoot()");
+		return;
+	}
+
+	// Only set if necessary
+	if ( USBKeys_Protocol == 0 )
+		return;
+
+	// TODO Analog inputs
+	// Only set on key press
+	if ( stateType != 0x01 )
+		return;
+
+	// Flush the key buffers
+	Output_flushBuffers();
+
+	// Set the keyboard protocol to Boot Mode
+	USBKeys_Protocol = 0;
+}
+
+
+// Set NKRO Keyboard Protocol
+void Output_kbdProtocolNKRO_capability( uint8_t state, uint8_t stateType, uint8_t *args )
+{
+	// Display capability name
+	if ( stateType == 0xFF && state == 0xFF )
+	{
+		print("Output_kbdProtocolNKRO()");
+		return;
+	}
+
+	// Only set if necessary
+	if ( USBKeys_Protocol == 1 )
+		return;
+
+	// TODO Analog inputs
+	// Only set on key press
+	if ( stateType != 0x01 )
+		return;
+
+	// Flush the key buffers
+	Output_flushBuffers();
+
+	// Set the keyboard protocol to NKRO Mode
+	USBKeys_Protocol = 1;
+}
+
 
 // Sends a Consumer Control code to the USB Output buffer
 void Output_consCtrlSend_capability( uint8_t state, uint8_t stateType, uint8_t *args )
@@ -162,6 +226,21 @@ void Output_consCtrlSend_capability( uint8_t state, uint8_t stateType, uint8_t *
 
 	// Set consumer control code
 	USBKeys_ConsCtrl = *(uint16_t*)(&args[0]);
+}
+
+
+// Ignores the given key status update
+// Used to prevent fall-through, this is the None keyword in KLL
+void Output_noneSend_capability( uint8_t state, uint8_t stateType, uint8_t *args )
+{
+	// Display capability name
+	if ( stateType == 0xFF && state == 0xFF )
+	{
+		print("Output_noneSend()");
+		return;
+	}
+
+	// Nothing to do, because that's the point :P
 }
 
 
@@ -369,6 +448,20 @@ void Output_usbCodeSend_capability( uint8_t state, uint8_t stateType, uint8_t *a
 
 // ----- Functions -----
 
+// Flush Key buffers
+void Output_flushBuffers()
+{
+	// Zero out USBKeys_Keys array
+	for ( uint8_t c = 0; c < USB_NKRO_BITFIELD_SIZE_KEYS; c++ )
+		USBKeys_Keys[ c ] = 0;
+
+	// Zero out other key buffers
+	USBKeys_ConsCtrl = 0;
+	USBKeys_Modifiers = 0;
+	USBKeys_SysCtrl = 0;
+}
+
+
 // USB Module Setup
 inline void Output_setup()
 {
@@ -468,7 +561,7 @@ inline int Output_putstr( char* str )
 {
 #if defined(_at90usb162_) || defined(_atmega32u4_) || defined(_at90usb646_) || defined(_at90usb1286_) // AVR
 	uint16_t count = 0;
-#elif defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_) // ARM
+#elif defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_) || defined(_mk20dx256vlh7_) // ARM
 	uint32_t count = 0;
 #endif
 	// Count characters until NULL character, then send the amount counted

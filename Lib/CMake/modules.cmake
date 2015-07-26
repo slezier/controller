@@ -1,6 +1,6 @@
 ###| CMAKE Kiibohd Controller Source Configurator |###
 #
-# Written by Jacob Alexander in 2011-2014 for the Kiibohd Controller
+# Written by Jacob Alexander in 2011-2015 for the Kiibohd Controller
 #
 # Released into the Public Domain
 #
@@ -24,6 +24,7 @@ endif ()
 
 
 
+
 ###
 # Path Setup
 #
@@ -41,36 +42,16 @@ set( HEAD_DIR "${CMAKE_CURRENT_SOURCE_DIR}" )
 # Module Check Function
 #
 
-#| Usage:
-#|  PathPrepend( ModulePath <ListOfFamiliesSupported> )
-#| Uses the ${COMPILER_FAMILY} variable
-function( ModuleCompatibility ModulePath )
-	foreach( mod_var ${ARGN} )
+function ( ModuleCompatibility ModulePath )
+	foreach ( mod_var ${ARGN} )
 		if ( ${mod_var} STREQUAL ${COMPILER_FAMILY} )
 			# Module found, no need to scan further
 			return()
 		endif ()
-	endforeach()
+	endforeach ()
 
-	message( FATAL_ERROR "${ModulePath} does not support the ${COMPILER_FAMILY} family..." )
-endfunction()
-
-
-
-###
-# Module Configuration
-#
-
-#| Additional options, usually define settings
-add_definitions()
-
-#| Include path for each of the modules
-add_definitions(
-	-I${HEAD_DIR}/${ScanModulePath}
-	-I${HEAD_DIR}/${MacroModulePath}
-	-I${HEAD_DIR}/${OutputModulePath}
-	-I${HEAD_DIR}/${DebugModulePath}
-)
+	message ( FATAL_ERROR "${ModulePath} does not support the ${COMPILER_FAMILY} family..." )
+endfunction ()
 
 
 
@@ -81,54 +62,93 @@ add_definitions(
 #| Go through lists of sources and append paths
 #| Usage:
 #|  PathPrepend( OutputListOfSources <Prepend Path> <InputListOfSources> )
-macro( PathPrepend Output SourcesPath )
-	unset( tmpSource )
+macro ( PathPrepend Output SourcesPath )
+	unset ( tmpSource )
 
 	# Loop through items
-	foreach( item ${ARGN} )
+	foreach ( item ${ARGN} )
 		# Set the path
-		set( tmpSource ${tmpSource} "${SourcesPath}/${item}" )
-	endforeach()
+		set ( tmpSource ${tmpSource} "${SourcesPath}/${item}" )
+	endforeach ()
 
 	# Finalize by writing the new list back over the old one
-	set( ${Output} ${tmpSource} )
-endmacro()
+	set ( ${Output} ${tmpSource} )
+endmacro ()
 
 
-#| Scan Module
-include    (            "${ScanModulePath}/setup.cmake"  )
-PathPrepend(  SCAN_SRCS  ${ScanModulePath} ${SCAN_SRCS}  )
 
-#| Macro Module
-include    (           "${MacroModulePath}/setup.cmake"  )
-PathPrepend( MACRO_SRCS ${MacroModulePath} ${MACRO_SRCS} )
+###
+# Add Module Macro
+#
+# Optional Arg 1: Main Module Check, set to True/1 if adding a main module
 
-#| Output Module
-include    (             "${OutputModulePath}/setup.cmake"   )
-PathPrepend( OUTPUT_SRCS  ${OutputModulePath} ${OUTPUT_SRCS} )
+function ( AddModule ModuleType ModuleName )
+	# Module path
+	set ( ModulePath                 ${ModuleType}/${ModuleName} )
+	set ( ModuleFullPath ${HEAD_DIR}/${ModuleType}/${ModuleName} )
 
-#| Debugging Module
-include    (           "${DebugModulePath}/setup.cmake"  )
-PathPrepend( DEBUG_SRCS ${DebugModulePath} ${DEBUG_SRCS} )
+	# Include setup.cmake file
+	include ( ${ModuleFullPath}/setup.cmake )
+
+	# Check if this is a main module add
+	foreach ( extraArg ${ARGN} )
+		# Make sure this isn't a submodule
+		if ( DEFINED SubModule )
+			message ( FATAL_ERROR
+			"The '${ModuleName}' module is not a stand-alone module, and requires further setup."
+			)
+		endif ()
+	endforeach ()
+
+	# PathPrepend to give proper paths to each of the source files
+	PathPrepend ( Module_SRCS ${ModulePath} ${Module_SRCS} )
+
+	# Check the current scope to see if a sub-module added some source files
+	# Append each of the sources to each type of module srcs list
+	set ( ${ModuleType}_SRCS ${${ModuleType}_SRCS} ${Module_SRCS} )
+
+	# Add .h files
+	add_definitions ( -I${ModuleFullPath} )
+
+	# Check module compatibility
+	ModuleCompatibility( ${ModulePath} ${ModuleCompatibility} )
+
+	# Check if this is a main module add
+	foreach ( extraArg ${ARGN} )
+		# Display detected source files
+		if ( NOT DEFINED SubModule )
+			message ( STATUS "Detected ${ModuleType} Module Source Files:" )
+			message ( "${${ModuleType}_SRCS}" )
+		endif ()
+	endforeach ()
+
+	# Check for any capabilities.kll files in the Module
+	set ( kll_capabilities_file "${ModuleFullPath}/capabilities.kll" )
+	if ( EXISTS ${kll_capabilities_file} )
+		# Add the kll file and any submodule kll files to the running list
+		set ( ${ModuleType}Module_KLL ${${ModuleType}Module_KLL} ${kll_capabilities_file} )
+	endif ()
 
 
-#| Print list of all module sources
-message( STATUS "Detected Scan Module Source Files:" )
-message( "${SCAN_SRCS}" )
-message( STATUS "Detected Macro Module Source Files:" )
-message( "${MACRO_SRCS}" )
-message( STATUS "Detected Output Module Source Files:" )
-message( "${OUTPUT_SRCS}" )
-message( STATUS "Detected Debug Module Source Files:" )
-message( "${DEBUG_SRCS}" )
+	# Finally, add the sources and kll files to the parent scope (i.e. return)
+	set ( ${ModuleType}_SRCS ${${ModuleType}_SRCS} PARENT_SCOPE )
+	set ( ${ModuleType}Module_KLL ${${ModuleType}Module_KLL} PARENT_SCOPE )
+endfunction ()
+
+
+#| Add main modules
+AddModule ( Scan   ${ScanModule}   1 )
+AddModule ( Macro  ${MacroModule}  1 )
+AddModule ( Output ${OutputModule} 1 )
+AddModule ( Debug  ${DebugModule}  1 )
 
 
 
 ###
 # CMake Module Checking
 #
-find_package( Git REQUIRED )
-find_package( Ctags ) # Optional
+find_package ( Git REQUIRED )
+find_package ( Ctags ) # Optional
 
 
 
@@ -137,7 +157,7 @@ find_package( Ctags ) # Optional
 #
 
 #| Manufacturer name
-set( MANUFACTURER "Kiibohd" )
+set ( MANUFACTURER "Kiibohd" )
 
 
 #| Serial Number
@@ -145,18 +165,28 @@ set( MANUFACTURER "Kiibohd" )
 
 #| Modified
 #| Takes a bit of work to extract the "M " using CMake, and not using it if there are no modifications
-execute_process( COMMAND ${GIT_EXECUTABLE} status -s -uno --porcelain
+execute_process ( COMMAND ${GIT_EXECUTABLE} status -s -uno --porcelain
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	OUTPUT_VARIABLE Git_Modified_INFO
 	ERROR_QUIET
 	OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-string( LENGTH "${Git_Modified_INFO}" Git_Modified_LENGTH )
-set( Git_Modified_Status "Clean" )
+string ( LENGTH "${Git_Modified_INFO}" Git_Modified_LENGTH )
+set ( Git_Modified_Status "Clean" )
 if ( ${Git_Modified_LENGTH} GREATER 2 )
-	string( SUBSTRING "${Git_Modified_INFO}" 1 2 Git_Modified_Flag_INFO )
-	set( Git_Modified_Status "Dirty" )
+	string ( SUBSTRING "${Git_Modified_INFO}" 1 2 Git_Modified_Flag_INFO )
+	set ( Git_Modified_Status "Dirty" )
 endif ()
+
+#| List of modified files
+execute_process ( COMMAND ${GIT_EXECUTABLE} diff-index --name-only HEAD --
+	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+	OUTPUT_VARIABLE Git_Modified_Files
+	ERROR_QUIET
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string ( REGEX REPLACE "\n" "\\\\r\\\\n\\\\t" Git_Modified_Files "${Git_Modified_Files}" )
+set ( Git_Modified_Files "\\r\\n\\t${Git_Modified_Files}" )
 
 #| Branch
 execute_process( COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
@@ -167,7 +197,7 @@ execute_process( COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
 )
 
 #| Date
-execute_process( COMMAND ${GIT_EXECUTABLE} show -s --format=%ci
+execute_process ( COMMAND ${GIT_EXECUTABLE} show -s --format=%ci
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	OUTPUT_VARIABLE Git_Date_INFO
 	ERROR_QUIET
@@ -175,7 +205,7 @@ execute_process( COMMAND ${GIT_EXECUTABLE} show -s --format=%ci
 )
 
 #| Commit Author and Email
-execute_process( COMMAND ${GIT_EXECUTABLE} show -s --format="%cn <%ce>"
+execute_process ( COMMAND ${GIT_EXECUTABLE} show -s --format="%cn <%ce>"
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	OUTPUT_VARIABLE Git_Commit_Author
 	ERROR_QUIET
@@ -183,7 +213,7 @@ execute_process( COMMAND ${GIT_EXECUTABLE} show -s --format="%cn <%ce>"
 )
 
 #| Commit Revision
-execute_process( COMMAND ${GIT_EXECUTABLE} show -s --format=%H
+execute_process ( COMMAND ${GIT_EXECUTABLE} show -s --format=%H
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	OUTPUT_VARIABLE Git_Commit_Revision
 	ERROR_QUIET
@@ -191,7 +221,7 @@ execute_process( COMMAND ${GIT_EXECUTABLE} show -s --format=%H
 )
 
 #| Origin URL
-execute_process( COMMAND ${GIT_EXECUTABLE} config --get remote.origin.url
+execute_process ( COMMAND ${GIT_EXECUTABLE} config --get remote.origin.url
 	WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 	OUTPUT_VARIABLE Git_Origin_URL
 	ERROR_QUIET
@@ -199,47 +229,35 @@ execute_process( COMMAND ${GIT_EXECUTABLE} config --get remote.origin.url
 )
 
 #| Build Date
-execute_process( COMMAND "date" "+%Y-%m-%d %T %z"
+execute_process ( COMMAND "date" "+%Y-%m-%d %T %z"
 	OUTPUT_VARIABLE Build_Date
 	ERROR_QUIET
 	OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
 #| Last Commit Date
-set( GitLastCommitDate "${Git_Modified_Status} ${Git_Branch_INFO} - ${Git_Date_INFO}" )
+set ( GitLastCommitDate "${Git_Modified_Status} ${Git_Branch_INFO} - ${Git_Date_INFO}" )
 
 #| Uses CMake variables to include as defines
 #| Primarily for USB configuration
-configure_file( ${CMAKE_CURRENT_SOURCE_DIR}/Lib/_buildvars.h buildvars.h )
+configure_file ( ${CMAKE_CURRENT_SOURCE_DIR}/Lib/_buildvars.h buildvars.h )
 
 
 
 ###
 # Source Defines
 #
-set( SRCS
+set ( SRCS
 	${MAIN_SRCS}
 	${COMPILER_SRCS}
-	${SCAN_SRCS}
-	${MACRO_SRCS}
-	${OUTPUT_SRCS}
-	${DEBUG_SRCS}
+	${Scan_SRCS}
+	${Macro_SRCS}
+	${Output_SRCS}
+	${Debug_SRCS}
 )
 
 #| Directories to include by default
-include_directories( ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} )
-
-
-
-###
-# Module Compatibility Check
-#
-
-#| Check for whether the set modules are compatible with the specified compiler family
-ModuleCompatibility( ${ScanModulePath}   ${ScanModuleCompatibility}   )
-ModuleCompatibility( ${MacroModulePath}  ${MacroModuleCompatibility}  )
-ModuleCompatibility( ${OutputModulePath} ${OutputModuleCompatibility} )
-ModuleCompatibility( ${DebugModulePath}  ${DebugModuleCompatibility}  )
+include_directories ( ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR} )
 
 
 
@@ -247,20 +265,20 @@ ModuleCompatibility( ${DebugModulePath}  ${DebugModuleCompatibility}  )
 # ctag Generation
 #
 
-if( CTAGS_EXECUTABLE )
+if ( CTAGS_EXECUTABLE )
 	# Populate list of directories for ctags to parse
 	# NOTE: Doesn't support dots in the folder names...
-	foreach( filename ${SRCS} )
-		string( REGEX REPLACE "/[a-zA-Z0-9_-]+.c$" "" pathglob ${filename} )
-		file( GLOB filenames "${pathglob}/*.c" )
-		set( CTAG_PATHS ${CTAG_PATHS} ${filenames} )
-		file( GLOB filenames "${pathglob}/*.h" )
-		set( CTAG_PATHS ${CTAG_PATHS} ${filenames} )
-	endforeach()
+	foreach ( filename ${SRCS} )
+		string ( REGEX REPLACE "/[a-zA-Z0-9_-]+.c$" "" pathglob ${filename} )
+		file ( GLOB filenames "${pathglob}/*.c" )
+		set ( CTAG_PATHS ${CTAG_PATHS} ${filenames} )
+		file ( GLOB filenames "${pathglob}/*.h" )
+		set ( CTAG_PATHS ${CTAG_PATHS} ${filenames} )
+	endforeach ()
 
 	# Generate the ctags
-	execute_process( COMMAND ctags ${CTAG_PATHS}
+	execute_process ( COMMAND ctags ${CTAG_PATHS}
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 	)
-endif()
+endif ()
 
