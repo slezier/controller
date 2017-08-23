@@ -1,5 +1,5 @@
 // Originally Generated from MCHCK Toolkit
-/* Copyright (c) Jacob Alexander 2014-2015 <haata@kiibohd.com>
+/* Copyright (c) Jacob Alexander 2014-2017 <haata@kiibohd.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,13 @@
 
 
 
+// ----- Macros -----
+
+#define LSB(n) ((n) & 255)
+#define MSB(n) (((n) >> 8) & 255)
+
+
+
 // ----- Structs -----
 
 static const struct usb_config_1 usb_config_1 = {
@@ -36,9 +43,9 @@ static const struct usb_config_1 usb_config_1 = {
 		.wTotalLength = sizeof(struct usb_config_1),
 		.bNumInterfaces = 1,
 		.bConfigurationValue = 1,
-		.iConfiguration = 0,
+		.iConfiguration = 5,
 		.one = 1,
-		.bMaxPower = 100
+		.bMaxPower = 50
 	},
 	.usb_function_0 = {
 		.iface = {
@@ -61,7 +68,11 @@ static const struct usb_config_1 usb_config_1 = {
 		},
 		.will_detach = 1,
 		.manifestation_tolerant = 0,
+#if defined(_mk20dx128vlf5_) // Kiibohd-dfu / McHCK
 		.can_upload = 0,
+#elif defined(_mk20dx256vlh7_) // Kiibohd-dfu
+		.can_upload = 1,
+#endif
 		.can_download = 1,
 		.wDetachTimeOut = 0,
 		.wTransferSize = USB_DFU_TRANSFER_SIZE,
@@ -89,19 +100,20 @@ static const struct usb_desc_dev_t dfu_device_dev_desc = {
 	.bMaxPacketSize0 = EP0_BUFSIZE,
 	.idVendor = VENDOR_ID,
 	.idProduct = PRODUCT_ID,
-	.bcdDevice = { .raw = 0 },
+	.bcdDevice = { .maj = MSB( BCD_VERSION ), .min = LSB( BCD_VERSION ) },
 	.iManufacturer = 1,
 	.iProduct = 2,
 	.iSerialNumber = 3,
 	.bNumConfigurations = 1,
 };
 
-static const struct usb_desc_string_t * const dfu_device_str_desc[] = {
+struct usb_desc_string_t * const dfu_device_str_desc[] = {
 	USB_DESC_STRING_LANG_ENUS,
 	USB_DESC_STRING(STR_MANUFACTURER),
 	USB_DESC_STRING(STR_PRODUCT),
 	USB_DESC_STRING(STR_SERIAL),
 	USB_DESC_STRING(STR_ALTNAME),
+	USB_DESC_STRING(STR_CONFIG_NAME),
 	NULL
 };
 

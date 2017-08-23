@@ -1,7 +1,9 @@
-#!/bin/bash
-# This is a build script template
+#!/usr/bin/env bash
+#
+# Keyboard: (template)
+#
 # These build scripts are just a convenience for configuring your keyboard (less daunting than CMake)
-# Jacob Alexander 2015
+# Jacob Alexander 2015-2016
 
 
 
@@ -16,7 +18,7 @@ BuildPath="template"
 ## KLL Configuration ##
 
 # Generally shouldn't be changed, this will affect every layer
-BaseMap="defaultMap"
+BaseMap="scancode_map"
 
 # This is the default layer of the keyboard
 # NOTE: To combine kll files into a single layout, separate them by spaces
@@ -43,7 +45,7 @@ PartialMaps[2]="colemak"
 # NOTE: Changing any of these variables will require a force build to compile correctly
 
 # Keyboard Module Configuration
-ScanModule="MD1"
+ScanModule="Infinity_60%"
 MacroModule="PartialMap"
 OutputModule="pjrcUSB"
 DebugModule="full"

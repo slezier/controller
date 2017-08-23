@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2015 by Jacob Alexander
+/* Copyright (C) 2014-2017 by Jacob Alexander
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -21,46 +21,68 @@
 
 // ----- Includes -----
 
-// Compiler Includes
-//#include <stdarg.h>
-
 // Project Includes
+#include <Lib/entropy.h>
+#include <Lib/time.h>
+
+// General Includes
 #include <buildvars.h>
-#include "cli.h"
 #include <led.h>
 #include <print.h>
+
+// KLL Includes
+#include <kll_defs.h>
+
+// Local Includes
+#include "cli.h"
 
 
 
 // ----- Variables -----
 
 // Basic command dictionary
-CLIDict_Entry( clear, "Clear the screen.");
-CLIDict_Entry( cliDebug, "Enables/Disables hex output of the most recent cli input." );
-CLIDict_Entry( help,     "You're looking at it :P" );
-CLIDict_Entry( led,      "Enables/Disables indicator LED. Try a couple times just in case the LED is in an odd state.\r\n\t\t\033[33mWarning\033[0m: May adversely affect some modules..." );
-CLIDict_Entry( reload,   "Signals microcontroller to reflash/reload." );
-CLIDict_Entry( reset,    "Resets the terminal back to initial settings." );
-CLIDict_Entry( restart,  "Sends a software restart, should be similar to powering on the device." );
-CLIDict_Entry( version,  "Version information about this firmware." );
+CLIDict_Entry( clear,     "Clear the screen.");
+CLIDict_Entry( cliDebug,  "Enables/Disables hex output of the most recent cli input." );
+CLIDict_Entry( colorTest, "Displays a True Color ANSI test sequence to test terminal. If it displays in color, you're good." );
+#if defined(_host_)
+CLIDict_Entry( exit,      "Host KLL Only - Exits cli." );
+#endif
+CLIDict_Entry( help,      "You're looking at it :P" );
+CLIDict_Entry( led,       "Enables/Disables indicator LED. Try a couple times just in case the LED is in an odd state.\r\n\t\t\033[33mWarning\033[0m: May adversely affect some modules..." );
+CLIDict_Entry( rand,      "If entropy available, print a random 32-bit number." );
+CLIDict_Entry( reload,    "Signals microcontroller to reflash/reload." );
+CLIDict_Entry( reset,     "Resets the terminal back to initial settings." );
+CLIDict_Entry( restart,   "Sends a software restart, should be similar to powering on the device." );
+CLIDict_Entry( tick,      "Displays the fundamental tick size, and current ticks since last systick." );
+CLIDict_Entry( version,   "Version information about this firmware." );
 
 CLIDict_Def( basicCLIDict, "General Commands" ) = {
 	CLIDict_Item( clear ),
 	CLIDict_Item( cliDebug ),
+	CLIDict_Item( colorTest ),
+#if defined(_host_)
+	CLIDict_Item( exit ),
+#endif
 	CLIDict_Item( help ),
 	CLIDict_Item( led ),
+	CLIDict_Item( rand ),
 	CLIDict_Item( reload ),
 	CLIDict_Item( reset ),
 	CLIDict_Item( restart ),
+	CLIDict_Item( tick ),
 	CLIDict_Item( version ),
 	{ 0, 0, 0 } // Null entry for dictionary end
 };
+
+#if defined(_host_)
+int CLI_exit = 0; // When 1, cli signals library to exit (Host-side KLL only)
+#endif
 
 
 
 // ----- Functions -----
 
-inline void prompt()
+void prompt()
 {
 	print("\033[2K\r"); // Erases the current line and resets cursor to beginning of line
 	print("\033[1;34m:\033[0m "); // Blue bold prompt
@@ -90,10 +112,15 @@ inline void CLI_init()
 
 	// Hex debug mode is off by default
 	CLIHexDebugMode = 0;
+
+#if defined(_host_)
+	// Make sure we're not exiting right away in Host-side KLL mode
+	CLI_exit = 0;
+#endif
 }
 
 // Query the serial input buffer for any new characters
-void CLI_process()
+int CLI_process()
 {
 	// Current buffer position
 	uint8_t prev_buf_pos = CLILineBufferCurrent;
@@ -120,7 +147,7 @@ void CLI_process()
 			// Reset the prompt
 			prompt();
 
-			return;
+			return 0;
 		}
 
 		// Place into line buffer
@@ -161,14 +188,11 @@ void CLI_process()
 			}
 			else
 			{
-			// Only do command-related stuff if there was actually a command
-			// Avoids clogging command history with blanks
+				// Add the command to the history
+				CLI_saveHistory( CLILineBuffer );
 
 				// Process the current line buffer
 				CLI_commandLookup();
-
-				// Add the command to the history
-				CLI_saveHistory( CLILineBuffer );
 
 				// Keep the array circular, discarding the older entries
 				if ( CLIHistoryTail < CLIHistoryHead )
@@ -192,9 +216,18 @@ void CLI_process()
 			print( NL );
 			prompt();
 
+			// Check if we need to exit right away
+#if defined(_host_)
+			if ( CLI_exit )
+			{
+				CLI_exit = 0;
+				return 1;
+			}
+#endif
+
 			// XXX There is a potential bug here when resetting the buffer (losing valid keypresses)
 			//     Doesn't look like it will happen *that* often, so not handling it for now -HaaTa
-			return;
+			return 0;
 
 		case 0x09: // Tab
 			// Tab completion for the current command
@@ -204,7 +237,7 @@ void CLI_process()
 
 			// XXX There is a potential bug here when resetting the buffer (losing valid keypresses)
 			//     Doesn't look like it will happen *that* often, so not handling it for now -HaaTa
-			return;
+			return 0;
 
 		case 0x1B: // Esc / Escape codes
 			// Check for other escape sequence
@@ -238,7 +271,7 @@ void CLI_process()
 					CLI_retreiveHistory( CLIHistoryCurrent );
 				}
 			}
-			return;
+			return 0;
 
 		case 0x08:
 		case 0x7F: // Backspace
@@ -270,6 +303,8 @@ void CLI_process()
 			break;
 		}
 	}
+
+	return 0;
 }
 
 // Takes a string, returns two pointers
@@ -427,6 +462,11 @@ inline void CLI_saveHistory( char *buff )
 		return;
 	}
 
+        // Don't write empty lines to the history
+        const char *cursor = buff;
+        while (*cursor == ' ') { cursor++; } // advance past the leading whitespace
+        if (*cursor == '\0') { return ; }
+
 	// Copy the line to the history
 	int i;
 	for (i = 0; i < CLILineBufferCurrent; i++)
@@ -482,6 +522,19 @@ void cliFunc_cliDebug( char* args )
 	}
 }
 
+void cliFunc_colorTest( char* args )
+{
+	print( NL );
+	print("\x1b[38;2;255;100;0mTRUECOLOR\x1b[0m");
+}
+
+#if defined(_host_)
+void cliFunc_exit( char* args )
+{
+	CLI_exit = 1;
+}
+#endif
+
 void cliFunc_help( char* args )
 {
 	// Scan array of dictionaries and print every description
@@ -515,8 +568,31 @@ void cliFunc_led( char* args )
 	errorLED( CLILEDState ); // Enable/Disable error LED
 }
 
+void cliFunc_rand( char* args )
+{
+	print( NL );
+
+	// Check if entropy available
+	if ( !rand_available() )
+	{
+		warn_print("No entropy available!");
+		return;
+	}
+
+	info_msg("Rand: ");
+	printHex32( rand_value32() );
+}
+
 void cliFunc_reload( char* args )
 {
+	if ( flashModeEnabled_define == 0 )
+	{
+		print( NL );
+		warn_print("flashModeEnabled not set, cancelling firmware reload...");
+		info_msg("Set flashModeEnabled to 1 in your kll configuration.");
+		return;
+	}
+
 	// Request to output module to be set into firmware reload mode
 	Output_firmwareReload();
 }
@@ -530,6 +606,24 @@ void cliFunc_restart( char* args )
 {
 	// Trigger an overall software reset
 	Output_softReset();
+}
+
+void cliFunc_tick( char* args )
+{
+	print( NL );
+
+	// Get current time
+	Time now = Time_now();
+
+	// Display <systick>:<cycleticks since systick>
+	info_msg("ns per cycletick: ");
+	print( Time_ticksPer_ns_str );
+	print( NL );
+	info_print("<systick ms>:<cycleticks since systick>");
+	printInt32( now.ms );
+	print(":");
+	printInt32( now.ticks );
+	print( NL );
 }
 
 void cliFunc_version( char* args )
@@ -548,5 +642,16 @@ void cliFunc_version( char* args )
 	print( " \033[1mCPU:\033[0m           " CLI_CPU            NL );
 	print( " \033[1mDevice:\033[0m        " CLI_Device         NL );
 	print( " \033[1mModules:\033[0m       " CLI_Modules        NL );
+#if defined(_mk20dx128_) || defined(_mk20dx128vlf5_) || defined(_mk20dx256_) || defined(_mk20dx256vlh7_)
+	print( " \033[1mUnique Id:\033[0m     " );
+	printHex32_op( SIM_UIDH, 8 );
+	printHex32_op( SIM_UIDMH, 8 );
+	printHex32_op( SIM_UIDML, 8 );
+	printHex32_op( SIM_UIDL, 8 );
+#elif defined(_at90usb162_) || defined(_atmega32u4_) || defined(_at90usb646_) || defined(_at90usb1286_)
+#elif defined(_host_)
+#else
+#error "No unique id defined."
+#endif
 }
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Loads firmware image using an SWD Flasher
 # Uses MCHCK ruby flasher toolchain
 # NOTE: Only tested with a buspirate on Linux
@@ -16,7 +16,7 @@ fi
 # First check to see if the flasher toolchain is available
 if [ ! -d "programmer" ]; then
 	# Use git to download the toolchain
-	git clone https://github.com/mchck/programmer.git
+	git clone https://github.com/kiibohd/programmer.git
 fi
 
 # Make sure the toolchain is up to date

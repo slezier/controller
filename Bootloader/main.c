@@ -1,5 +1,5 @@
 /* Copyright (c) 2011,2012 Simon Schubert <2@0x2c.org>.
- * Modifications by Jacob Alexander 2014-2015 <haata@kiibohd.com>
+ * Modifications by Jacob Alexander 2014-2016 <haata@kiibohd.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,11 +17,16 @@
 
 // ----- Includes -----
 
+// Project Includes
+#include <delay.h>
+
 // Local Includes
 #include "mchck.h"
 #include "dfu.desc.h"
 
 #include "debug.h"
+
+#include "usb-internal.h"
 
 
 
@@ -88,19 +93,12 @@ int sector_print( void* buf, size_t sector, size_t chunks )
 static enum dfu_status setup_read( size_t off, size_t *len, void **buf )
 {
 	// Calculate starting address from offset
-	*buf = (void*)&_app_rom + (USB_DFU_TRANSFER_SIZE / 4) * off;
+	*buf = (void*)&_app_rom + off;
 
 	// Calculate length of transfer
-	/*
-	*len = *buf > (void*)(&_app_rom_end) - USB_DFU_TRANSFER_SIZE
-		? 0 : USB_DFU_TRANSFER_SIZE;
-	*/
-
-	// Check for error
-	/*
-	if ( *buf > (void*)&_app_rom_end )
-		return (DFU_STATUS_errADDRESS);
-	*/
+	*len = *buf + USB_DFU_TRANSFER_SIZE > (void*)(&_app_rom_end)
+		? (void*)(&_app_rom_end) - *buf + 1
+		: USB_DFU_TRANSFER_SIZE;
 
 	return (DFU_STATUS_OK);
 }
@@ -141,8 +139,14 @@ static enum dfu_status setup_write( size_t off, size_t len, void **buf )
 static enum dfu_status finish_write( void *buf, size_t off, size_t len )
 {
 	void *target;
+
+	// If nothing left to flash, this is still ok
 	if ( len == 0 )
 		return (DFU_STATUS_OK);
+
+	// If the binary is larger than the internal flash, error
+	if ( off + (uintptr_t)&_app_rom + len > (uintptr_t)&_app_rom_end )
+		return (DFU_STATUS_errADDRESS);
 
 	target = flash_get_staging_area( off + (uintptr_t)&_app_rom, USB_DFU_TRANSFER_SIZE );
 	if ( !target )
@@ -173,6 +177,11 @@ static struct dfu_ctx dfu_ctx;
 void init_usb_bootloader( int config )
 {
 	dfu_init( setup_read, setup_write, finish_write, &dfu_ctx );
+
+#if defined(_mk20dx256vlh7_) // Kiibohd-dfu
+	// Make sure SysTick counter is disabled
+	SYST_CSR = 0;
+#endif
 }
 
 void main()
@@ -192,6 +201,12 @@ void main()
 	// Setup pin - A5 - See Lib/pin_map.mchck for more details on pins
 	PORTA_PCR5 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
 	GPIOA_PSOR |= (1<<5);
+
+	// TODO Add CMake configuration for disabling
+	// Set LCD backlight on ICED to Red
+	GPIOC_PDDR |= (1<<1);
+	PORTC_PCR1 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
+	GPIOC_PCOR |= (1<<1);
 #else
 #error "Incompatible chip for bootloader"
 #endif
@@ -210,35 +225,6 @@ void main()
 	printHex( memcmp( (uint8_t*)&VBAT, sys_reset_to_loader_magic, sizeof(sys_reset_to_loader_magic) ) == 0 );
 	print( NL );
 
-	// XXX REMOVEME
-	/*
-	GPIOB_PDDR |= (1<<16);
-	PORTB_PCR16 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
-	GPIOB_PSOR |= (1<<16);
-
-	// RST
-	GPIOC_PDDR |= (1<<8);
-	PORTC_PCR8 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
-	GPIOC_PSOR |= (1<<8);
-
-	// CS1B
-	GPIOC_PDDR |= (1<<4);
-	PORTC_PCR4 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
-	GPIOC_PCOR |= (1<<4);
-	*/
-	// Backlight
-	/*
-	GPIOC_PDDR |= (1<<1);
-	PORTC_PCR1 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
-	GPIOC_PCOR |= (1<<1);
-	GPIOC_PDDR |= (1<<2);
-	PORTC_PCR2 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
-	GPIOC_PCOR |= (1<<2);
-	GPIOC_PDDR |= (1<<3);
-	PORTC_PCR3 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
-	GPIOC_PCOR |= (1<<3);
-	*/
-
 #ifdef FLASH_DEBUG
 	for ( uint8_t sector = 0; sector < 3; sector++ )
 		sector_print( &_app_rom, sector, 16 );
@@ -247,9 +233,45 @@ void main()
 
 	flash_prepare_flashing();
 	usb_init( &dfu_device );
+
+#if defined(_mk20dx256vlh7_) // Kiibohd-dfu
+	// PTA4 - USB Swap
+	// Start, disabled
+	GPIOA_PDDR |= (1<<4);
+	PORTA_PCR4 = PORT_PCR_SRE | PORT_PCR_DSE | PORT_PCR_MUX(1);
+	GPIOA_PCOR |= (1<<4);
+
+	#define USBPortSwapDelay_ms 1000
+	// For keyboards with dual usb ports, doesn't do anything on keyboards without them
+	// If a USB connection is not detected in 2 seconds, switch to the other port to see if it's plugged in there
+	uint32_t last_ms = systick_millis_count;
+	uint8_t attempt = 0;
+	for (;;)
+	{
+		usb_poll();
+
+		// Only check for swapping after delay
+		uint32_t wait_ms = systick_millis_count - last_ms;
+		if ( wait_ms < USBPortSwapDelay_ms + attempt / 2 * USBPortSwapDelay_ms )
+		{
+			continue;
+		}
+
+		last_ms = systick_millis_count;
+
+		// USB not initialized, attempt to swap
+		if ( usb.state != USBD_STATE_ADDRESS )
+		{
+			print("USB not initializing, port swapping (if supported)");
+			GPIOA_PTOR |= (1<<4);
+			attempt++;
+		}
+	}
+#else
 	for (;;)
 	{
 		usb_poll();
 	}
+#endif
 }
 

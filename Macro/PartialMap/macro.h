@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2015 by Jacob Alexander
+/* Copyright (C) 2014-2016 by Jacob Alexander
  *
  * This file is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,21 +23,13 @@
 
 
 
-// ----- Capabilities -----
-
-void Macro_layerState_capability( uint8_t state, uint8_t stateType, uint8_t *args );
-void Macro_layerLatch_capability( uint8_t state, uint8_t stateType, uint8_t *args );
-void Macro_layerLock_capability( uint8_t state, uint8_t stateType, uint8_t *args );
-void Macro_layerShift_capability( uint8_t state, uint8_t stateType, uint8_t *args );
-
-
-
 // ----- Functions -----
 
 void Macro_analogState( uint8_t scanCode, uint8_t state );
 void Macro_keyState( uint8_t scanCode, uint8_t state );
 void Macro_ledState( uint8_t ledCode, uint8_t state );
-void Macro_triggerState( void *triggers, uint8_t num ); // triggers is of type TriggerGuide, void* for circular dependencies
 void Macro_process();
 void Macro_setup();
+
+uint8_t Macro_pressReleaseAdd( void *trigger ); // triggers is of type TriggerGuide, void* for circular dependencies
 

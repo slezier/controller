@@ -7,12 +7,21 @@ The [KLL](https://github.com/kiibohd/kll) git repo is automatically cloned durin
 
 Please refer to the [KLL](https://github.com/kiibohd/kll) repo or [kiibohd.com](http://kiibohd.com) for details on the KLL (Keyboard Layout Language) Spec.
 
+[![Travis Status](https://travis-ci.org/kiibohd/controller.svg?branch=master)](https://travis-ci.org/kiibohd/controller) [![Appveyor Status](https://ci.appveyor.com/api/projects/status/erfnnhlm3w5sinr3/branch/master?svg=true)](https://ci.appveyor.com/project/haata/controller/branch/master)
+
+
+[![Visit our IRC channel](https://kiwiirc.com/buttons/irc.freenode.net/input.club.png)](https://kiwiirc.com/client/irc.freenode.net/#input.club)
+
 
 
 Official Keyboards
 ------------------
 
-* MD1 (Infinity Keyboard 2014/10/15)
+* Infinity 60%
+* Infinity 60% LED
+* Infinity Ergodox
+* WhiteFox
+* K-Type (coming soon)
 
 
 The Kiibohd firmware supports a lot of other keyboards, but these are more obscure/custom/lesser known.
@@ -34,10 +43,10 @@ For the full compilation details, please refer to the [wiki](https://github.com/
 Supported Microcontrollers
 --------------------------
 
-* Teensy 2.0 (Partial)
-* Teensy 2.0++
-* Teesny 3.0
-* Teensy 3.1
+* Teensy 2.0 (Deprecated)
+* Teensy 2.0++ (Deprecated)
+* Teensy 3.0
+* Teensy 3.1/3.2
 * mk20dx128vlf5
 * mk20dx256vlh7
 
@@ -80,8 +89,3 @@ Contact
 -------
 
 If you really need to get a hold of HaaTa, email is best: `haata@kiibohd.com`
-
-IRC is likely faster though.
-`#geekhack@irc.freenode.net`
-`#deskthority@irc.freenode.net`
-

@@ -1,7 +1,9 @@
-#!/bin/bash
-# This is a build script template
+#!/usr/bin/env bash
+#
+# Keyboard: Infinity 60% (MD1)
+#
 # These build scripts are just a convenience for configuring your keyboard (less daunting than CMake)
-# Jacob Alexander 2015
+# Jacob Alexander 2015-2016
 
 
 
@@ -11,17 +13,17 @@
 
 # Feel free to change the variables in this section to configure your keyboard
 
-BuildPath="template"
+BuildPath="IC60"
 
 ## KLL Configuration ##
 
 # Generally shouldn't be changed, this will affect every layer
-BaseMap="defaultMap"
+BaseMap="scancode_map"
 
 # This is the default layer of the keyboard
 # NOTE: To combine kll files into a single layout, separate them by spaces
 # e.g.  DefaultMap="mylayout mylayoutmod"
-DefaultMap="md1Overlay stdFuncMap"
+DefaultMap="stdFuncMap"
 
 # This is where you set the additional layers
 # NOTE: Indexing starts at 1
@@ -42,7 +44,7 @@ PartialMaps[1]="hhkbpro2"
 # NOTE: Changing any of these variables will require a force build to compile correctly
 
 # Keyboard Module Configuration
-ScanModule="MD1"
+ScanModule="Infinity_60"
 MacroModule="PartialMap"
 OutputModule="pjrcUSB"
 DebugModule="full"

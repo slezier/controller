@@ -1,4 +1,4 @@
-/* Copyright (C) 2014-2015 by Jacob Alexander
+/* Copyright (C) 2014-2017 by Jacob Alexander
  *
  * This file is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,7 +29,19 @@
 #include "usb_hid.h"
 #include <generatedKeymap.h> // Generated using kll at compile time, in build directory
 
+// Connect Includes
+#if defined(ConnectEnabled_define)
+#include <connect_scan.h>
+#endif
+
+// PixelMap Includes
+#if defined(Pixel_MapEnabled_define)
+#include <pixel.h>
+#endif
+
 // Local Includes
+#include "trigger.h"
+#include "result.h"
 #include "macro.h"
 
 
@@ -49,33 +61,7 @@ void cliFunc_macroList ( char* args );
 void cliFunc_macroProc ( char* args );
 void cliFunc_macroShow ( char* args );
 void cliFunc_macroStep ( char* args );
-
-
-
-// ----- Enums -----
-
-// Bit positions are important, passes (correct key) always trump incorrect key votes
-typedef enum TriggerMacroVote {
-	TriggerMacroVote_Release          = 0x10, // Correct key
-	TriggerMacroVote_PassRelease      = 0x18, // Correct key (both pass and release)
-	TriggerMacroVote_Pass             = 0x8,  // Correct key
-	TriggerMacroVote_DoNothingRelease = 0x4,  // Incorrect key
-	TriggerMacroVote_DoNothing        = 0x2,  // Incorrect key
-	TriggerMacroVote_Fail             = 0x1,  // Incorrect key
-	TriggerMacroVote_Invalid          = 0x0,  // Invalid state
-} TriggerMacroVote;
-
-typedef enum TriggerMacroEval {
-	TriggerMacroEval_DoNothing,
-	TriggerMacroEval_DoResult,
-	TriggerMacroEval_DoResultAndRemove,
-	TriggerMacroEval_Remove,
-} TriggerMacroEval;
-
-typedef enum ResultMacroEval {
-	ResultMacroEval_DoNothing,
-	ResultMacroEval_Remove,
-} ResultMacroEval;
+void cliFunc_posList   ( char* args );
 
 
 
@@ -95,6 +81,7 @@ CLIDict_Entry( macroList,   "List the defined trigger and result macros." );
 CLIDict_Entry( macroProc,   "Pause/Resume macro processing." );
 CLIDict_Entry( macroShow,   "Show the macro corresponding to the given index." NL "\t\t\033[35mT16\033[0m Indexed Trigger Macro 0x10, \033[35mR12\033[0m Indexed Result Macro 0x0C" );
 CLIDict_Entry( macroStep,   "Do N macro processing steps. Defaults to 1." );
+CLIDict_Entry( posList,     "List physical key positions by ScanCode." );
 
 CLIDict_Def( macroCLIDict, "Macro Module Commands" ) = {
 	CLIDict_Item( capList ),
@@ -110,6 +97,7 @@ CLIDict_Def( macroCLIDict, "Macro Module Commands" ) = {
 	CLIDict_Item( macroProc ),
 	CLIDict_Item( macroShow ),
 	CLIDict_Item( macroStep ),
+	CLIDict_Item( posList ),
 	{ 0, 0, 0 } // Null entry for dictionary end
 };
 
@@ -130,37 +118,46 @@ uint16_t macroStepCounter = 0;
 // Key Trigger List Buffer and Layer Cache
 // The layer cache is set on press only, hold and release events refer to the value set on press
 TriggerGuide macroTriggerListBuffer[ MaxScanCode ];
-uint8_t macroTriggerListBufferSize = 0;
+var_uint_t macroTriggerListBufferSize = 0;
 var_uint_t macroTriggerListLayerCache[ MaxScanCode ];
-
-// Pending Trigger Macro Index List
-//  * Any trigger macros that need processing from a previous macro processing loop
-// TODO, figure out a good way to scale this array size without wasting too much memory, but not rejecting macros
-//       Possibly could be calculated by the KLL compiler
-// XXX It may be possible to calculate the worst case using the KLL compiler
-uint16_t macroTriggerMacroPendingList[ TriggerMacroNum ] = { 0 };
-uint16_t macroTriggerMacroPendingListSize = 0;
 
 // Layer Index Stack
 //  * When modifying layer state and the state is non-0x0, the stack must be adjusted
-uint16_t macroLayerIndexStack[ LayerNum + 1 ] = { 0 };
-uint16_t macroLayerIndexStackSize = 0;
+index_uint_t macroLayerIndexStack[ LayerNum + 1 ] = { 0 };
+index_uint_t macroLayerIndexStackSize = 0;
 
-// Pending Result Macro Index List
-//  * Any result macro that needs processing from a previous macro processing loop
-uint16_t macroResultMacroPendingList[ ResultMacroNum ] = { 0 };
-uint16_t macroResultMacroPendingListSize = 0;
+// TODO REMOVE when dependency no longer exists
+extern ResultsPending macroResultMacroPendingList;
+extern index_uint_t macroTriggerMacroPendingList[];
+extern index_uint_t macroTriggerMacroPendingListSize;
+
+// Interconnect ScanCode Cache
+#if defined(ConnectEnabled_define) || defined(PressReleaseCache_define)
+// TODO This can be shrunk by the size of the max node 0 ScanCode
+TriggerGuide macroInterconnectCache[ MaxScanCode ];
+uint8_t macroInterconnectCacheSize = 0;
+#endif
 
 
 
 // ----- Capabilities -----
 
+#if defined(Pixel_MapEnabled_define) && defined(animation_test_layout_define)
+uint8_t Pixel_addDefaultAnimation( uint32_t index );
+#endif
+
 // Sets the given layer with the specified layerState
-void Macro_layerState( uint8_t state, uint8_t stateType, uint16_t layer, uint8_t layerState )
+void Macro_layerState( TriggerMacro *trigger, uint8_t state, uint8_t stateType, uint16_t layer, uint8_t layerState )
 {
-	// Ignore if layer does not exist
-	if ( layer >= LayerNum )
+	// Ignore if layer does not exist or trying to manipulate layer 0/Default layer
+	if ( layer >= LayerNum || layer == 0 )
 		return;
+
+#if defined(Pixel_MapEnabled_define) && defined(animation_test_layout_define)
+	// TODO TODO TODO TODO
+	// TODO (HaaTa) Add as an event
+	Pixel_addDefaultAnimation( Animation__lock_event );
+#endif
 
 	// Is layer in the LayerIndexStack?
 	uint8_t inLayerIndexStack = 0;
@@ -217,7 +214,7 @@ void Macro_layerState( uint8_t state, uint8_t stateType, uint16_t layer, uint8_t
 		dbug_msg("Layer ");
 
 		// Iterate over each of the layers displaying the state as a hex value
-		for ( uint16_t index = 0; index < LayerNum; index++ )
+		for ( index_uint_t index = 0; index < LayerNum; index++ )
 		{
 			printHex_op( LayerState[ index ], 0 );
 		}
@@ -226,7 +223,7 @@ void Macro_layerState( uint8_t state, uint8_t stateType, uint16_t layer, uint8_t
 		print(" 0");
 
 		// Iterate over the layer stack starting from the bottom of the stack
-		for ( uint16_t index = macroLayerIndexStackSize; index > 0; index-- )
+		for ( index_uint_t index = macroLayerIndexStackSize; index > 0; index-- )
 		{
 			print(":");
 			printHex_op( macroLayerIndexStack[ index - 1 ], 0 );
@@ -239,7 +236,7 @@ void Macro_layerState( uint8_t state, uint8_t stateType, uint16_t layer, uint8_t
 // Modifies the specified Layer control byte
 // Argument #1: Layer Index -> uint16_t
 // Argument #2: Layer State -> uint8_t
-void Macro_layerState_capability( uint8_t state, uint8_t stateType, uint8_t *args )
+void Macro_layerState_capability( TriggerMacro *trigger, uint8_t state, uint8_t stateType, uint8_t *args )
 {
 	// Display capability name
 	if ( stateType == 0xFF && state == 0xFF )
@@ -261,13 +258,13 @@ void Macro_layerState_capability( uint8_t state, uint8_t stateType, uint8_t *arg
 	// Get layer toggle byte
 	uint8_t layerState = args[ sizeof(uint16_t) ];
 
-	Macro_layerState( state, stateType, layer, layerState );
+	Macro_layerState( trigger, state, stateType, layer, layerState );
 }
 
 
 // Latches given layer
 // Argument #1: Layer Index -> uint16_t
-void Macro_layerLatch_capability( uint8_t state, uint8_t stateType, uint8_t *args )
+void Macro_layerLatch_capability( TriggerMacro *trigger, uint8_t state, uint8_t stateType, uint8_t *args )
 {
 	// Display capability name
 	if ( stateType == 0xFF && state == 0xFF )
@@ -285,13 +282,13 @@ void Macro_layerLatch_capability( uint8_t state, uint8_t stateType, uint8_t *arg
 	// Cast pointer to uint8_t to uint16_t then access that memory location
 	uint16_t layer = *(uint16_t*)(&args[0]);
 
-	Macro_layerState( state, stateType, layer, 0x02 );
+	Macro_layerState( trigger, state, stateType, layer, 0x02 );
 }
 
 
 // Locks given layer
 // Argument #1: Layer Index -> uint16_t
-void Macro_layerLock_capability( uint8_t state, uint8_t stateType, uint8_t *args )
+void Macro_layerLock_capability( TriggerMacro *trigger, uint8_t state, uint8_t stateType, uint8_t *args )
 {
 	// Display capability name
 	if ( stateType == 0xFF && state == 0xFF )
@@ -310,13 +307,13 @@ void Macro_layerLock_capability( uint8_t state, uint8_t stateType, uint8_t *args
 	// Cast pointer to uint8_t to uint16_t then access that memory location
 	uint16_t layer = *(uint16_t*)(&args[0]);
 
-	Macro_layerState( state, stateType, layer, 0x04 );
+	Macro_layerState( trigger, state, stateType, layer, 0x04 );
 }
 
 
 // Shifts given layer
 // Argument #1: Layer Index -> uint16_t
-void Macro_layerShift_capability( uint8_t state, uint8_t stateType, uint8_t *args )
+void Macro_layerShift_capability( TriggerMacro *trigger, uint8_t state, uint8_t stateType, uint8_t *args )
 {
 	// Display capability name
 	if ( stateType == 0xFF && state == 0xFF )
@@ -334,7 +331,67 @@ void Macro_layerShift_capability( uint8_t state, uint8_t stateType, uint8_t *arg
 	// Cast pointer to uint8_t to uint16_t then access that memory location
 	uint16_t layer = *(uint16_t*)(&args[0]);
 
-	Macro_layerState( state, stateType, layer, 0x01 );
+	// Only set the layer if it is disabled
+	if ( LayerState[ layer ] != 0x00 && state == 0x01 )
+		return;
+
+	// Only unset the layer if it is enabled
+	if ( LayerState[ layer ] == 0x00 && state == 0x03 )
+		return;
+
+	Macro_layerState( trigger, state, stateType, layer, 0x01 );
+}
+
+
+// Rotate layer to next/previous
+// Uses state variable to keep track of the current layer position
+// Layers are still evaluated using the layer stack
+uint16_t Macro_rotationLayer;
+void Macro_layerRotate_capability( TriggerMacro *trigger, uint8_t state, uint8_t stateType, uint8_t *args )
+{
+	// Display capability name
+	if ( stateType == 0xFF && state == 0xFF )
+	{
+		print("Macro_layerRotate(previous)");
+		return;
+	}
+
+	// Only use capability on press
+	// TODO Analog
+	// XXX Could also be on release, but that's sorta dumb -HaaTa
+	if ( stateType == 0x00 && state != 0x01 ) // All normal key conditions except press
+		return;
+
+	// Unset previous rotation layer if not 0
+	if ( Macro_rotationLayer != 0 )
+	{
+		Macro_layerState( trigger, state, stateType, Macro_rotationLayer, 0x04 );
+	}
+
+	// Get direction of rotation, 0, next, non-zero previous
+	uint8_t direction = *args;
+
+	// Next
+	if ( !direction )
+	{
+		Macro_rotationLayer++;
+
+		// Invalid layer
+		if ( Macro_rotationLayer >= LayerNum )
+			Macro_rotationLayer = 0;
+	}
+	// Previous
+	else
+	{
+		Macro_rotationLayer--;
+
+		// Layer wrap
+		if ( Macro_rotationLayer >= LayerNum )
+			Macro_rotationLayer = LayerNum - 1;
+	}
+
+	// Toggle the computed layer rotation
+	Macro_layerState( trigger, state, stateType, Macro_rotationLayer, 0x04 );
 }
 
 
@@ -358,11 +415,31 @@ nat_ptr_t *Macro_layerLookup( TriggerGuide *guide, uint8_t latch_expire )
 		nat_ptr_t **map = (nat_ptr_t**)LayerIndex[ cachedLayer ].triggerMap;
 		const Layer *layer = &LayerIndex[ cachedLayer ];
 
-		return map[ scanCode - layer->first ];
+		// Cache trigger list before attempting to expire latch
+		nat_ptr_t *trigger_list = map[ scanCode - layer->first ];
+
+		// Check if latch has been pressed for this layer
+		uint8_t latch = LayerState[ cachedLayer ] & 0x02;
+		if ( latch && latch_expire )
+		{
+			Macro_layerState( 0, 0, 0, cachedLayer, 0x02 );
+#if defined(ConnectEnabled_define) && defined(LCDEnabled_define)
+			// Evaluate the layerStack capability if available (LCD + Interconnect)
+			extern void LCD_layerStack_capability(
+				TriggerMacro *trigger,
+				uint8_t state,
+				uint8_t stateType,
+				uint8_t *args
+			);
+			LCD_layerStack_capability( 0, 0, 0, 0 );
+#endif
+		}
+
+		return trigger_list;
 	}
 
 	// If no trigger macro is defined at the given layer, fallthrough to the next layer
-	for ( uint16_t layerIndex = 0; layerIndex < macroLayerIndexStackSize; layerIndex++ )
+	for ( uint16_t layerIndex = macroLayerIndexStackSize; layerIndex != 0xFFFF; layerIndex-- )
 	{
 		// Lookup Layer
 		const Layer *layer = &LayerIndex[ macroLayerIndexStack[ layerIndex ] ];
@@ -372,7 +449,7 @@ nat_ptr_t *Macro_layerLookup( TriggerGuide *guide, uint8_t latch_expire )
 		uint8_t latch = LayerState[ macroLayerIndexStack[ layerIndex ] ] & 0x02;
 		if ( latch && latch_expire )
 		{
-			Macro_layerState( 0, 0, macroLayerIndexStack[ layerIndex ], 0x02 );
+			Macro_layerState( 0, 0, 0, macroLayerIndexStack[ layerIndex ], 0x02 );
 		}
 
 		// Only use layer, if state is valid
@@ -386,9 +463,9 @@ nat_ptr_t *Macro_layerLookup( TriggerGuide *guide, uint8_t latch_expire )
 			// Determine if layer has key defined
 			// Make sure scanCode is between layer first and last scancodes
 			if ( map != 0
-			  && scanCode <= layer->last
-			  && scanCode >= layer->first
-			  && *map[ scanCode - layer->first ] != 0 )
+				&& scanCode <= layer->last
+				&& scanCode >= layer->first
+				&& *map[ scanCode - layer->first ] != 0 )
 			{
 				// Set the layer cache
 				macroTriggerListLayerCache[ scanCode ] = macroLayerIndexStack[ layerIndex ];
@@ -406,9 +483,9 @@ nat_ptr_t *Macro_layerLookup( TriggerGuide *guide, uint8_t latch_expire )
 
 	// Make sure scanCode is between layer first and last scancodes
 	if ( map != 0
-	  && scanCode <= layer->last
-	  && scanCode >= layer->first
-	  && *map[ scanCode - layer->first ] != 0 )
+		&& scanCode <= layer->last
+		&& scanCode >= layer->first
+		&& *map[ scanCode - layer->first ] != 0 )
 	{
 		// Set the layer cache to default map
 		macroTriggerListLayerCache[ scanCode ] = 0;
@@ -419,18 +496,84 @@ nat_ptr_t *Macro_layerLookup( TriggerGuide *guide, uint8_t latch_expire )
 	// Otherwise no defined Trigger Macro
 	erro_msg("Scan Code has no defined Trigger Macro: ");
 	printHex( scanCode );
+	print( NL );
 	return 0;
 }
 
 
-// Update the scancode using a list of TriggerGuides
-// TODO Handle led state and analog
-inline void Macro_triggerState( void *triggers, uint8_t num )
+// Add an interconnect ScanCode
+// These are handled differently (less information is sent, hold/off states must be assumed)
+// Returns 1 if added, 0 if the ScanCode is already in the buffer
+// Returns 2 if there's an error
+#if defined(ConnectEnabled_define) || defined(PressReleaseCache_define)
+uint8_t Macro_pressReleaseAdd( void *trigger_ptr )
 {
-	// Copy each of the TriggerGuides to the TriggerListBuffer
-	for ( uint8_t c = 0; c < num; c++ )
-		macroTriggerListBuffer[ macroTriggerListBufferSize++ ] = ((TriggerGuide*)triggers)[ c ];
+	TriggerGuide *trigger = (TriggerGuide*)trigger_ptr;
+
+	// Error checking
+	uint8_t error = 0;
+	switch ( trigger->type )
+	{
+	case 0x00: // Normal key
+		switch ( trigger->state )
+		{
+		case 0x00:
+		case 0x01:
+		case 0x02:
+		case 0x03:
+			break;
+		default:
+			erro_msg("Invalid key state - ");
+			error = 1;
+			break;
+		}
+		break;
+
+	// Invalid TriggerGuide type
+	default:
+		erro_msg("Invalid type - ");
+		error = 1;
+		break;
+	}
+
+	// Check if ScanCode is out of range
+	if ( trigger->scanCode > MaxScanCode )
+	{
+		warn_msg("ScanCode is out of range/not defined - ");
+		error = 1;
+	}
+
+	// Display TriggerGuide
+	if ( error )
+	{
+		printHex( trigger->type );
+		print(" ");
+		printHex( trigger->state );
+		print(" ");
+		printHex( trigger->scanCode );
+		print( NL );
+		return 2;
+	}
+
+	// Add trigger to the Interconnect Cache
+	// During each processing loop, a scancode may be re-added depending on it's state
+	for ( var_uint_t c = 0; c < macroInterconnectCacheSize; c++ )
+	{
+		// Check if the same ScanCode
+		if ( macroInterconnectCache[ c ].scanCode == trigger->scanCode )
+		{
+			// Update the state
+			macroInterconnectCache[ c ].state = trigger->state;
+			return 0;
+		}
+	}
+
+	// If not in the list, add it
+	macroInterconnectCache[ macroInterconnectCacheSize++ ] = *trigger;
+
+	return 1;
 }
+#endif
 
 
 // Update the scancode key state
@@ -442,12 +585,35 @@ inline void Macro_triggerState( void *triggers, uint8_t num )
 //   * 0x04 - Unpressed (this is currently ignored)
 inline void Macro_keyState( uint8_t scanCode, uint8_t state )
 {
+#if defined(ConnectEnabled_define)
+	// Only compile in if a Connect node module is available
+	if ( !Connect_master )
+	{
+		// ScanCodes are only added if there was a state change (on/off)
+		switch ( state )
+		{
+		case 0x00: // Off
+		case 0x02: // Held
+			return;
+		}
+	}
+#endif
+
 	// Only add to macro trigger list if one of three states
 	switch ( state )
 	{
 	case 0x01: // Pressed
 	case 0x02: // Held
 	case 0x03: // Released
+		// Check if ScanCode is out of range
+		if ( scanCode > MaxScanCode )
+		{
+			warn_msg("ScanCode is out of range/not defined: ");
+			printHex( scanCode );
+			print( NL );
+			return;
+		}
+
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].scanCode = scanCode;
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].state    = state;
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].type     = 0x00; // Normal key
@@ -465,8 +631,18 @@ inline void Macro_keyState( uint8_t scanCode, uint8_t state )
 inline void Macro_analogState( uint8_t scanCode, uint8_t state )
 {
 	// Only add to macro trigger list if non-off
+	// TODO Handle change for interconnect
 	if ( state != 0x00 )
 	{
+		// Check if ScanCode is out of range
+		if ( scanCode > MaxScanCode )
+		{
+			warn_msg("ScanCode is out of range/not defined: ");
+			printHex( scanCode );
+			print( NL );
+			return;
+		}
+
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].scanCode = scanCode;
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].state    = state;
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].type     = 0x02; // Analog key
@@ -482,8 +658,12 @@ inline void Macro_analogState( uint8_t scanCode, uint8_t state )
 inline void Macro_ledState( uint8_t ledCode, uint8_t state )
 {
 	// Only add to macro trigger list if non-off
+	// TODO Handle change for interconnect
 	if ( state != 0x00 )
 	{
+		// Check if LedCode is out of range
+		// TODO
+
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].scanCode = ledCode;
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].state    = state;
 		macroTriggerListBuffer[ macroTriggerListBufferSize ].type     = 0x01; // LED key
@@ -494,21 +674,22 @@ inline void Macro_ledState( uint8_t ledCode, uint8_t state )
 
 // Append result macro to pending list, checking for duplicates
 // Do nothing if duplicate
-inline void Macro_appendResultMacroToPendingList( const TriggerMacro *triggerMacro )
+void Macro_appendResultMacroToPendingList( const TriggerMacro *triggerMacro )
 {
 	// Lookup result macro index
 	var_uint_t resultMacroIndex = triggerMacro->result;
 
 	// Iterate through result macro pending list, making sure this macro hasn't been added yet
-	for ( var_uint_t macro = 0; macro < macroResultMacroPendingListSize; macro++ )
+	for ( var_uint_t macro = 0; macro < macroResultMacroPendingList.size; macro++ )
 	{
 		// If duplicate found, do nothing
-		if ( macroResultMacroPendingList[ macro ] == resultMacroIndex )
+		if ( macroResultMacroPendingList.data[ macro ].index == resultMacroIndex )
 			return;
 	}
 
 	// No duplicates found, add to pending list
-	macroResultMacroPendingList[ macroResultMacroPendingListSize++ ] = resultMacroIndex;
+	macroResultMacroPendingList.data[ macroResultMacroPendingList.size ].trigger = (TriggerMacro*)triggerMacro;
+	macroResultMacroPendingList.data[ macroResultMacroPendingList.size++ ].index = resultMacroIndex;
 
 	// Lookup scanCode of the last key in the last combo
 	var_uint_t pos = 0;
@@ -521,7 +702,7 @@ inline void Macro_appendResultMacroToPendingList( const TriggerMacro *triggerMac
 	uint8_t scanCode = ((TriggerGuide*)&triggerMacro->guide[ pos - TriggerGuideSize ])->scanCode;
 
 	// Lookup scanCode in buffer list for the current state and stateType
-	for ( uint8_t keyIndex = 0; keyIndex < macroTriggerListBufferSize; keyIndex++ )
+	for ( var_uint_t keyIndex = 0; keyIndex < macroTriggerListBufferSize; keyIndex++ )
 	{
 		if ( macroTriggerListBuffer[ keyIndex ].scanCode == scanCode )
 		{
@@ -535,415 +716,60 @@ inline void Macro_appendResultMacroToPendingList( const TriggerMacro *triggerMac
 }
 
 
-// Determine if long ResultMacro (more than 1 seqence element)
-inline uint8_t Macro_isLongResultMacro( const ResultMacro *macro )
-{
-	// Check the second sequence combo length
-	// If non-zero return non-zero (long sequence)
-	// 0 otherwise (short sequence)
-	var_uint_t position = 1;
-	for ( var_uint_t result = 0; result < macro->guide[0]; result++ )
-		position += ResultGuideSize( (ResultGuide*)&macro->guide[ position ] );
-	return macro->guide[ position ];
-}
-
-
-// Determine if long TriggerMacro (more than 1 sequence element)
-inline uint8_t Macro_isLongTriggerMacro( const TriggerMacro *macro )
-{
-	// Check the second sequence combo length
-	// If non-zero return non-zero (long sequence)
-	// 0 otherwise (short sequence)
-	return macro->guide[ macro->guide[0] * TriggerGuideSize + 1 ];
-}
-
-
-// Votes on the given key vs. guide, short macros
-inline TriggerMacroVote Macro_evalShortTriggerMacroVote( TriggerGuide *key, TriggerGuide *guide )
-{
-	// Depending on key type
-	switch ( guide->type )
-	{
-	// Normal State Type
-	case 0x00:
-		// For short TriggerMacros completely ignore incorrect keys
-		if ( guide->scanCode == key->scanCode )
-		{
-			switch ( key->state )
-			{
-			// Correct key, pressed, possible passing
-			case 0x01:
-				return TriggerMacroVote_Pass;
-
-			// Correct key, held, possible passing or release
-			case 0x02:
-				return TriggerMacroVote_PassRelease;
-
-			// Correct key, released, possible release
-			case 0x03:
-				return TriggerMacroVote_Release;
-			}
-		}
-
-		return TriggerMacroVote_DoNothing;
-
-	// LED State Type
-	case 0x01:
-		erro_print("LED State Type - Not implemented...");
-		break;
-
-	// Analog State Type
-	case 0x02:
-		erro_print("Analog State Type - Not implemented...");
-		break;
-
-	// Invalid State Type
-	default:
-		erro_print("Invalid State Type. This is a bug.");
-		break;
-	}
-
-	// XXX Shouldn't reach here
-	return TriggerMacroVote_Invalid;
-}
-
-
-// Votes on the given key vs. guide, long macros
-// A long macro is defined as a guide with more than 1 combo
-inline TriggerMacroVote Macro_evalLongTriggerMacroVote( TriggerGuide *key, TriggerGuide *guide )
-{
-	// Depending on key type
-	switch ( guide->type )
-	{
-	// Normal State Type
-	case 0x00:
-		// Depending on the state of the buffered key, make voting decision
-		// Incorrect key
-		if ( guide->scanCode != key->scanCode )
-		{
-			switch ( key->state )
-			{
-			// Wrong key, pressed, fail
-			case 0x01:
-				return TriggerMacroVote_Fail;
-
-			// Wrong key, held, do not pass (no effect)
-			case 0x02:
-				return TriggerMacroVote_DoNothing;
-
-			// Wrong key released, fail out if pos == 0
-			case 0x03:
-				return TriggerMacroVote_DoNothing | TriggerMacroVote_DoNothingRelease;
-			}
-		}
-
-		// Correct key
-		else
-		{
-			switch ( key->state )
-			{
-			// Correct key, pressed, possible passing
-			case 0x01:
-				return TriggerMacroVote_Pass;
-
-			// Correct key, held, possible passing or release
-			case 0x02:
-				return TriggerMacroVote_PassRelease;
-
-			// Correct key, released, possible release
-			case 0x03:
-				return TriggerMacroVote_Release;
-			}
-		}
-
-		break;
-
-	// LED State Type
-	case 0x01:
-		erro_print("LED State Type - Not implemented...");
-		break;
-
-	// Analog State Type
-	case 0x02:
-		erro_print("Analog State Type - Not implemented...");
-		break;
-
-	// Invalid State Type
-	default:
-		erro_print("Invalid State Type. This is a bug.");
-		break;
-	}
-
-	// XXX Shouldn't reach here
-	return TriggerMacroVote_Invalid;
-}
-
-
-// Evaluate/Update TriggerMacro
-TriggerMacroEval Macro_evalTriggerMacro( var_uint_t triggerMacroIndex )
-{
-	// Lookup TriggerMacro
-	const TriggerMacro *macro = &TriggerMacroList[ triggerMacroIndex ];
-	TriggerMacroRecord *record = &TriggerMacroRecordList[ triggerMacroIndex ];
-
-	// Check if macro has finished and should be incremented sequence elements
-	if ( record->state == TriggerMacro_Release )
-	{
-		record->state = TriggerMacro_Waiting;
-		record->pos = record->pos + macro->guide[ record->pos ] * TriggerGuideSize + 1;
-	}
-
-	// Current Macro position
-	var_uint_t pos = record->pos;
-
-	// Length of the combo being processed
-	uint8_t comboLength = macro->guide[ pos ] * TriggerGuideSize;
-
-	// If no combo items are left, remove the TriggerMacro from the pending list
-	if ( comboLength == 0 )
-	{
-		return TriggerMacroEval_Remove;
-	}
-
-	// Check if this is a long Trigger Macro
-	uint8_t longMacro = Macro_isLongTriggerMacro( macro );
-
-	// Iterate through the items in the combo, voting the on the key state
-	// If any of the pressed keys do not match, fail the macro
-	//
-	// The macro is waiting for input when in the TriggerMacro_Waiting state
-	// Once all keys have been pressed/held (only those keys), entered TriggerMacro_Press state (passing)
-	// Transition to the next combo (if it exists) when a single key is released (TriggerMacro_Release state)
-	// On scan after position increment, change to TriggerMacro_Waiting state
-	// TODO Add support for system LED states (NumLock, CapsLock, etc.)
-	// TODO Add support for analog key states
-	// TODO Add support for 0x00 Key state (not pressing a key, not all that useful in general)
-	// TODO Add support for Press/Hold/Release differentiation when evaluating (not sure if useful)
-	TriggerMacroVote overallVote = TriggerMacroVote_Invalid;
-	for ( uint8_t comboItem = pos + 1; comboItem < pos + comboLength + 1; comboItem += TriggerGuideSize )
-	{
-		// Assign TriggerGuide element (key type, state and scancode)
-		TriggerGuide *guide = (TriggerGuide*)(&macro->guide[ comboItem ]);
-
-		TriggerMacroVote vote = TriggerMacroVote_Invalid;
-		// Iterate through the key buffer, comparing to each key in the combo
-		for ( uint8_t key = 0; key < macroTriggerListBufferSize; key++ )
-		{
-			// Lookup key information
-			TriggerGuide *keyInfo = &macroTriggerListBuffer[ key ];
-
-			// If vote is a pass (>= 0x08, no more keys in the combo need to be looked at)
-			// Also mask all of the non-passing votes
-			vote |= longMacro
-				? Macro_evalLongTriggerMacroVote( keyInfo, guide )
-				: Macro_evalShortTriggerMacroVote( keyInfo, guide );
-			if ( vote >= TriggerMacroVote_Pass )
-			{
-				vote &= TriggerMacroVote_Release | TriggerMacroVote_PassRelease | TriggerMacroVote_Pass;
-				break;
-			}
-		}
-
-		// If no pass vote was found after scanning all of the keys
-		// Fail the combo, if this is a short macro (long macros already will have a fail vote)
-		if ( !longMacro && vote < TriggerMacroVote_Pass )
-			vote |= TriggerMacroVote_Fail;
-
-		// After voting, append to overall vote
-		overallVote |= vote;
-	}
-
-	// If no pass vote was found after scanning the entire combo
-	// And this is the first position in the combo, just remove it (nothing important happened)
-	if ( longMacro && overallVote & TriggerMacroVote_DoNothingRelease && pos == 0 )
-		overallVote |= TriggerMacroVote_Fail;
-
-	// Decide new state of macro after voting
-	// Fail macro, remove from pending list
-	if ( overallVote & TriggerMacroVote_Fail )
-	{
-		return TriggerMacroEval_Remove;
-	}
-	// Do nothing, incorrect key is being held or released
-	else if ( overallVote & TriggerMacroVote_DoNothing && longMacro )
-	{
-		// Just doing nothing :)
-	}
-	// If ready for transition and in Press state, set to Waiting and increment combo position
-	// Position is incremented (and possibly remove the macro from the pending list) on the next iteration
-	else if ( overallVote & TriggerMacroVote_Release && record->state == TriggerMacro_Press )
-	{
-		record->state = TriggerMacro_Release;
-
-		// If this is the last combo in the sequence, remove from the pending list
-		if ( macro->guide[ record->pos + macro->guide[ record->pos ] * TriggerGuideSize + 1 ] == 0 )
-			return TriggerMacroEval_DoResultAndRemove;
-	}
-	// If passing and in Waiting state, set macro state to Press
-	else if ( overallVote & TriggerMacroVote_Pass
-	     && ( record->state == TriggerMacro_Waiting || record->state == TriggerMacro_Press ) )
-	{
-		record->state = TriggerMacro_Press;
-
-		// If in press state, and this is the final combo, send request for ResultMacro
-		// Check to see if the result macro only has a single element
-		// If this result macro has more than 1 key, only send once
-		// TODO Add option to have long macro repeat rate
-		if ( macro->guide[ pos + comboLength + 1 ] == 0 )
-		{
-			// Long result macro (more than 1 combo)
-			if ( Macro_isLongResultMacro( &ResultMacroList[ macro->result ] ) )
-			{
-				// Only ever trigger result once, on press
-				if ( overallVote == TriggerMacroVote_Pass )
-				{
-					return TriggerMacroEval_DoResultAndRemove;
-				}
-			}
-			// Short result macro
-			else
-			{
-				// Only trigger result once, on press, if long trigger (more than 1 combo)
-				if ( Macro_isLongTriggerMacro( macro ) )
-				{
-					return TriggerMacroEval_DoResultAndRemove;
-				}
-				// Otherwise, trigger result continuously
-				else
-				{
-					return TriggerMacroEval_DoResult;
-				}
-			}
-		}
-	}
-	// Otherwise, just remove the macro on key release
-	// One more result has to be called to indicate to the ResultMacro that the key transitioned to the release state
-	else if ( overallVote & TriggerMacroVote_Release )
-	{
-		return TriggerMacroEval_DoResultAndRemove;
-	}
-
-	// If this is a short macro, just remove it
-	// The state can be rebuilt on the next iteration
-	if ( !longMacro )
-		return TriggerMacroEval_Remove;
-
-	return TriggerMacroEval_DoNothing;
-}
-
-
-// Evaluate/Update ResultMacro
-inline ResultMacroEval Macro_evalResultMacro( var_uint_t resultMacroIndex )
-{
-	// Lookup ResultMacro
-	const ResultMacro *macro = &ResultMacroList[ resultMacroIndex ];
-	ResultMacroRecord *record = &ResultMacroRecordList[ resultMacroIndex ];
-
-	// Current Macro position
-	var_uint_t pos = record->pos;
-
-	// Length of combo being processed
-	uint8_t comboLength = macro->guide[ pos ];
-
-	// Function Counter, used to keep track of the combo items processed
-	var_uint_t funcCount = 0;
-
-	// Combo Item Position within the guide
-	var_uint_t comboItem = pos + 1;
-
-	// Iterate through the Result Combo
-	while ( funcCount < comboLength )
-	{
-		// Assign TriggerGuide element (key type, state and scancode)
-		ResultGuide *guide = (ResultGuide*)(&macro->guide[ comboItem ]);
-
-		// Do lookup on capability function
-		void (*capability)(uint8_t, uint8_t, uint8_t*) = (void(*)(uint8_t, uint8_t, uint8_t*))(CapabilitiesList[ guide->index ].func);
-
-		// Call capability
-		capability( record->state, record->stateType, &guide->args );
-
-		// Increment counters
-		funcCount++;
-		comboItem += ResultGuideSize( (ResultGuide*)(&macro->guide[ comboItem ]) );
-	}
-
-	// Move to next item in the sequence
-	record->pos = comboItem;
-
-	// If the ResultMacro is finished, remove
-	if ( macro->guide[ comboItem ] == 0 )
-	{
-		record->pos = 0;
-		return ResultMacroEval_Remove;
-	}
-
-	// Otherwise leave the macro in the list
-	return ResultMacroEval_DoNothing;
-}
-
-
-// Update pending trigger list
-inline void Macro_updateTriggerMacroPendingList()
-{
-	// Iterate over the macroTriggerListBuffer to add any new Trigger Macros to the pending list
-	for ( uint8_t key = 0; key < macroTriggerListBufferSize; key++ )
-	{
-		// TODO LED States
-		// TODO Analog Switches
-		// Only add TriggerMacro to pending list if key was pressed (not held, released or off)
-		if ( macroTriggerListBuffer[ key ].state == 0x00 && macroTriggerListBuffer[ key ].state != 0x01 )
-			continue;
-
-		// TODO Analog
-		// If this is a release case, indicate to layer lookup for possible latch expiry
-		uint8_t latch_expire = macroTriggerListBuffer[ key ].state == 0x03;
-
-		// Lookup Trigger List
-		nat_ptr_t *triggerList = Macro_layerLookup( &macroTriggerListBuffer[ key ], latch_expire );
-
-		// Number of Triggers in list
-		nat_ptr_t triggerListSize = triggerList[0];
-
-		// Iterate over triggerList to see if any TriggerMacros need to be added
-		// First item is the number of items in the TriggerList
-		for ( var_uint_t macro = 1; macro < triggerListSize + 1; macro++ )
-		{
-			// Lookup trigger macro index
-			var_uint_t triggerMacroIndex = triggerList[ macro ];
-
-			// Iterate over macroTriggerMacroPendingList to see if any macro in the scancode's
-			//  triggerList needs to be added
-			var_uint_t pending = 0;
-			for ( ; pending < macroTriggerMacroPendingListSize; pending++ )
-			{
-				// Stop scanning if the trigger macro index is found in the pending list
-				if ( macroTriggerMacroPendingList[ pending ] == triggerMacroIndex )
-					break;
-			}
-
-			// If the triggerMacroIndex (macro) was not found in the macroTriggerMacroPendingList
-			// Add it to the list
-			if ( pending == macroTriggerMacroPendingListSize )
-			{
-				macroTriggerMacroPendingList[ macroTriggerMacroPendingListSize++ ] = triggerMacroIndex;
-
-				// Reset macro position
-				TriggerMacroRecordList[ triggerMacroIndex ].pos   = 0;
-				TriggerMacroRecordList[ triggerMacroIndex ].state = TriggerMacro_Waiting;
-			}
-		}
-	}
-}
-
-
 // Macro Procesing Loop
 // Called once per USB buffer send
 inline void Macro_process()
 {
-	// Only do one round of macro processing between Output Module timer sends
-	if ( USBKeys_Sent != 0 )
+#if defined(ConnectEnabled_define)
+	// Only compile in if a Connect node module is available
+	// If this is a interconnect slave node, send all scancodes to master node
+	if ( !Connect_master )
+	{
+		if ( macroTriggerListBufferSize > 0 )
+		{
+			Connect_send_ScanCode( Connect_id, macroTriggerListBuffer, macroTriggerListBufferSize );
+			macroTriggerListBufferSize = 0;
+		}
 		return;
+	}
+#endif
+
+#if defined(ConnectEnabled_define) || defined(PressReleaseCache_define)
+#if defined(ConnectEnabled_define)
+	// Check if there are any ScanCodes in the interconnect cache to process
+	if ( Connect_master && macroInterconnectCacheSize > 0 )
+#endif
+	{
+		// Iterate over all the cache ScanCodes
+		uint8_t currentInterconnectCacheSize = macroInterconnectCacheSize;
+		macroInterconnectCacheSize = 0;
+		for ( uint8_t c = 0; c < currentInterconnectCacheSize; c++ )
+		{
+			// Add to the trigger list
+			macroTriggerListBuffer[ macroTriggerListBufferSize++ ] = macroInterconnectCache[ c ];
+
+			// TODO Handle other TriggerGuide types (e.g. analog)
+			switch ( macroInterconnectCache[ c ].type )
+			{
+			// Normal (Press/Hold/Release)
+			case 0x00:
+				// Decide what to do based on the current state
+				switch ( macroInterconnectCache[ c ].state )
+				{
+				// Re-add to interconnect cache in hold state
+				case 0x01: // Press
+				//case 0x02: // Hold // XXX Why does this not work? -HaaTa
+					macroInterconnectCache[ c ].state = 0x02;
+					macroInterconnectCache[ macroInterconnectCacheSize++ ] = macroInterconnectCache[ c ];
+					break;
+				case 0x03: // Remove
+					break;
+				// Otherwise, do not re-add
+				}
+			}
+		}
+	}
+#endif
 
 	// If the pause flag is set, only process if the step counter is non-zero
 	if ( macroPauseMode )
@@ -956,65 +782,12 @@ inline void Macro_process()
 		dbug_print("Macro Step");
 	}
 
-	// Update pending trigger list, before processing TriggerMacros
-	Macro_updateTriggerMacroPendingList();
-
-	// Tail pointer for macroTriggerMacroPendingList
-	// Macros must be explicitly re-added
-	var_uint_t macroTriggerMacroPendingListTail = 0;
-
-	// Iterate through the pending TriggerMacros, processing each of them
-	for ( var_uint_t macro = 0; macro < macroTriggerMacroPendingListSize; macro++ )
-	{
-		switch ( Macro_evalTriggerMacro( macroTriggerMacroPendingList[ macro ] ) )
-		{
-		// Trigger Result Macro (purposely falling through)
-		case TriggerMacroEval_DoResult:
-			// Append ResultMacro to PendingList
-			Macro_appendResultMacroToPendingList( &TriggerMacroList[ macroTriggerMacroPendingList[ macro ] ] );
-
-		default:
-			macroTriggerMacroPendingList[ macroTriggerMacroPendingListTail++ ] = macroTriggerMacroPendingList[ macro ];
-			break;
-
-		// Trigger Result Macro and Remove (purposely falling through)
-		case TriggerMacroEval_DoResultAndRemove:
-			// Append ResultMacro to PendingList
-			Macro_appendResultMacroToPendingList( &TriggerMacroList[ macroTriggerMacroPendingList[ macro ] ] );
-
-		// Remove Macro from Pending List, nothing to do, removing by default
-		case TriggerMacroEval_Remove:
-			break;
-		}
-	}
-
-	// Update the macroTriggerMacroPendingListSize with the tail pointer
-	macroTriggerMacroPendingListSize = macroTriggerMacroPendingListTail;
+	// Process Trigger Macros
+	Trigger_process();
 
 
-	// Tail pointer for macroResultMacroPendingList
-	// Macros must be explicitly re-added
-	var_uint_t macroResultMacroPendingListTail = 0;
-
-	// Iterate through the pending ResultMacros, processing each of them
-	for ( var_uint_t macro = 0; macro < macroResultMacroPendingListSize; macro++ )
-	{
-		switch ( Macro_evalResultMacro( macroResultMacroPendingList[ macro ] ) )
-		{
-		// Re-add macros to pending list
-		case ResultMacroEval_DoNothing:
-		default:
-			macroResultMacroPendingList[ macroResultMacroPendingListTail++ ] = macroResultMacroPendingList[ macro ];
-			break;
-
-		// Remove Macro from Pending List, nothing to do, removing by default
-		case ResultMacroEval_Remove:
-			break;
-		}
-	}
-
-	// Update the macroResultMacroPendingListSize with the tail pointer
-	macroResultMacroPendingListSize = macroResultMacroPendingListTail;
+	// Process result macros
+	Result_process();
 
 	// Signal buffer that we've used it
 	Scan_finishedWithMacro( macroTriggerListBufferSize );
@@ -1048,20 +821,14 @@ inline void Macro_setup()
 	// Make sure macro trigger buffer is empty
 	macroTriggerListBufferSize = 0;
 
-	// Initialize TriggerMacro states
-	for ( var_uint_t macro = 0; macro < TriggerMacroNum; macro++ )
-	{
-		TriggerMacroRecordList[ macro ].pos   = 0;
-		TriggerMacroRecordList[ macro ].state = TriggerMacro_Waiting;
-	}
+	// Set the current rotated layer to 0
+	Macro_rotationLayer = 0;
 
-	// Initialize ResultMacro states
-	for ( var_uint_t macro = 0; macro < ResultMacroNum; macro++ )
-	{
-		ResultMacroRecordList[ macro ].pos       = 0;
-		ResultMacroRecordList[ macro ].state     = 0;
-		ResultMacroRecordList[ macro ].stateType = 0;
-	}
+	// Setup Triggers
+	Trigger_setup();
+
+	// Setup Results
+	Result_setup();
 }
 
 
@@ -1081,8 +848,9 @@ void cliFunc_capList( char* args )
 		print(" - ");
 
 		// Display/Lookup Capability Name (utilize debug mode of capability)
-		void (*capability)(uint8_t, uint8_t, uint8_t*) = (void(*)(uint8_t, uint8_t, uint8_t*))(CapabilitiesList[ cap ].func);
-		capability( 0xFF, 0xFF, 0 );
+		void (*capability)(TriggerMacro*, uint8_t, uint8_t, uint8_t*) = \
+			(void(*)(TriggerMacro*, uint8_t, uint8_t, uint8_t*))(CapabilitiesList[ cap ].func);
+		capability( 0, 0xFF, 0xFF, 0 );
 	}
 }
 
@@ -1144,8 +912,22 @@ void cliFunc_capSelect( char* args )
 			printHex( argSet[2] );
 			print( "..." NL );
 
-			void (*capability)(uint8_t, uint8_t, uint8_t*) = (void(*)(uint8_t, uint8_t, uint8_t*))(CapabilitiesList[ cap ].func);
-			capability( argSet[0], argSet[1], &argSet[2] );
+			// Make sure this isn't the reload capability
+			// If it is, and the remote reflash define is not set, ignore
+			if ( flashModeEnabled_define == 0 ) for ( uint32_t cap = 0; cap < CapabilitiesNum; cap++ )
+			{
+				if ( CapabilitiesList[ cap ].func == (const void*)Output_flashMode_capability )
+				{
+					print( NL );
+					warn_print("flashModeEnabled not set, cancelling firmware reload...");
+					info_msg("Set flashModeEnabled to 1 in your kll configuration.");
+					return;
+				}
+			}
+
+			void (*capability)(TriggerMacro*, uint8_t, uint8_t, uint8_t*) = \
+				(void(*)(TriggerMacro*, uint8_t, uint8_t, uint8_t*))(CapabilitiesList[ cap ].func);
+			capability( 0, argSet[0], argSet[1], &argSet[2] );
 		}
 	}
 }
@@ -1339,7 +1121,7 @@ void cliFunc_macroList( char* args )
 	info_msg("Pending Key Events: ");
 	printInt16( (uint16_t)macroTriggerListBufferSize );
 	print(" : ");
-	for ( uint8_t key = 0; key < macroTriggerListBufferSize; key++ )
+	for ( var_uint_t key = 0; key < macroTriggerListBufferSize; key++ )
 	{
 		printHex( macroTriggerListBuffer[ key ].scanCode );
 		print(" ");
@@ -1359,11 +1141,11 @@ void cliFunc_macroList( char* args )
 	// Show pending result macros
 	print( NL );
 	info_msg("Pending Result Macros: ");
-	printInt16( (uint16_t)macroResultMacroPendingListSize );
+	printInt16( (uint16_t)macroResultMacroPendingList.size );
 	print(" : ");
-	for ( var_uint_t macro = 0; macro < macroResultMacroPendingListSize; macro++ )
+	for ( var_uint_t macro = 0; macro < macroResultMacroPendingList.size; macro++ )
 	{
-		printHex( macroResultMacroPendingList[ macro ] );
+		printHex( macroResultMacroPendingList.data[ macro ].index );
 		print(" ");
 	}
 
@@ -1512,8 +1294,9 @@ void macroDebugShowResult( var_uint_t index )
 			print("|");
 
 			// Display/Lookup Capability Name (utilize debug mode of capability)
-			void (*capability)(uint8_t, uint8_t, uint8_t*) = (void(*)(uint8_t, uint8_t, uint8_t*))(CapabilitiesList[ guide->index ].func);
-			capability( 0xFF, 0xFF, 0 );
+			void (*capability)(TriggerMacro*, uint8_t, uint8_t, uint8_t*) = \
+				(void(*)(TriggerMacro*, uint8_t, uint8_t, uint8_t*))(CapabilitiesList[ guide->index ].func);
+			capability( 0, 0xFF, 0xFF, 0 );
 
 			// Display Argument(s)
 			print("(");
@@ -1606,5 +1389,38 @@ void cliFunc_macroStep( char* args )
 
 	// Set the macro step counter, negative int's are cast to uint
 	macroStepCounter = count;
+}
+
+// Convenience Macro
+#define Key_PositionPrint( key, name ) \
+	printInt16( Key_Position[ key ].name.i ); \
+	print("."); \
+	printInt16( Key_Position[ key ].name.f )
+
+void cliFunc_posList( char* args )
+{
+	print( NL );
+
+	/* TODO Add printFloat function
+	// List out physical key positions by scan code
+	for ( uint8_t key = 0; key < MaxScanCode; key++ )
+	{
+		printInt8( key + 1 );
+		print(": [");
+		Key_PositionPrint( key, x );
+		print(", ");
+		Key_PositionPrint( key, y );
+		print(", ");
+		Key_PositionPrint( key, z );
+		print("] r[");
+		Key_PositionPrint( key, rx );
+		print(", ");
+		Key_PositionPrint( key, ry );
+		print(", ");
+		Key_PositionPrint( key, rz );
+		print("]");
+		print( NL );
+	}
+	*/
 }
 

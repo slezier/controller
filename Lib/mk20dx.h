@@ -1,7 +1,7 @@
 /* Teensyduino Core Library
  * http://www.pjrc.com/teensy/
  * Copyright (c) 2013 PJRC.COM, LLC.
- * Modified by Jacob Alexander 2014-2015
+ * Modified by Jacob Alexander 2014-2016
  *
  * Permission is hereby granted, free of charge, to any person obtaining
  * a copy of this software and associated documentation files (the
@@ -511,11 +511,37 @@
 #define DMA_ERQ_ERQ1                    ((uint32_t)1<<1)        // Enable DMA Request 1
 #define DMA_ERQ_ERQ2                    ((uint32_t)1<<2)        // Enable DMA Request 2
 #define DMA_ERQ_ERQ3                    ((uint32_t)1<<3)        // Enable DMA Request 3
+#define DMA_ERQ_ERQ4                    ((uint32_t)1<<4)        // Enable DMA Request 4
+#define DMA_ERQ_ERQ5                    ((uint32_t)1<<5)        // Enable DMA Request 5
+#define DMA_ERQ_ERQ6                    ((uint32_t)1<<6)        // Enable DMA Request 6
+#define DMA_ERQ_ERQ7                    ((uint32_t)1<<7)        // Enable DMA Request 7
+#define DMA_ERQ_ERQ8                    ((uint32_t)1<<8)        // Enable DMA Request 8
+#define DMA_ERQ_ERQ9                    ((uint32_t)1<<9)        // Enable DMA Request 9
+#define DMA_ERQ_ERQ10                   ((uint32_t)1<<10)       // Enable DMA Request 10
+#define DMA_ERQ_ERQ11                   ((uint32_t)1<<11)       // Enable DMA Request 11
+#define DMA_ERQ_ERQ12                   ((uint32_t)1<<12)       // Enable DMA Request 12
+#define DMA_ERQ_ERQ13                   ((uint32_t)1<<13)       // Enable DMA Request 13
+#define DMA_ERQ_ERQ14                   ((uint32_t)1<<14)       // Enable DMA Request 14
+#define DMA_ERQ_ERQ15                   ((uint32_t)1<<15)       // Enable DMA Request 15
+#define DMA_ERQ_ERQ16                   ((uint32_t)1<<16)       // Enable DMA Request 16
 #define DMA_EEI                 *(volatile uint32_t *)0x40008014 // Enable Error Interrupt Register
 #define DMA_EEI_EEI0                    ((uint32_t)1<<0)        // Enable Error Interrupt 0
 #define DMA_EEI_EEI1                    ((uint32_t)1<<1)        // Enable Error Interrupt 1
 #define DMA_EEI_EEI2                    ((uint32_t)1<<2)        // Enable Error Interrupt 2
 #define DMA_EEI_EEI3                    ((uint32_t)1<<3)        // Enable Error Interrupt 3
+#define DMA_EEI_EEI4                    ((uint32_t)1<<4)        // Enable Error Interrupt 4
+#define DMA_EEI_EEI5                    ((uint32_t)1<<5)        // Enable Error Interrupt 5
+#define DMA_EEI_EEI6                    ((uint32_t)1<<6)        // Enable Error Interrupt 6
+#define DMA_EEI_EEI7                    ((uint32_t)1<<7)        // Enable Error Interrupt 7
+#define DMA_EEI_EEI8                    ((uint32_t)1<<8)        // Enable Error Interrupt 8
+#define DMA_EEI_EEI9                    ((uint32_t)1<<9)        // Enable Error Interrupt 9
+#define DMA_EEI_EEI10                   ((uint32_t)1<<10)       // Enable Error Interrupt 10
+#define DMA_EEI_EEI11                   ((uint32_t)1<<11)       // Enable Error Interrupt 11
+#define DMA_EEI_EEI12                   ((uint32_t)1<<12)       // Enable Error Interrupt 12
+#define DMA_EEI_EEI13                   ((uint32_t)1<<13)       // Enable Error Interrupt 13
+#define DMA_EEI_EEI14                   ((uint32_t)1<<14)       // Enable Error Interrupt 14
+#define DMA_EEI_EEI15                   ((uint32_t)1<<15)       // Enable Error Interrupt 15
+#define DMA_EEI_EEI16                   ((uint32_t)1<<16)       // Enable Error Interrupt 16
 #define DMA_CEEI                *(volatile uint8_t  *)0x40008018 // Clear Enable Error Interrupt Register
 #define DMA_CEEI_CEEI(n)                ((uint8_t)(n & 3)<<0)   // Clear Enable Error Interrupt
 #define DMA_CEEI_CAEE                   ((uint8_t)1<<6)         // Clear All Enable Error Interrupts
@@ -1431,6 +1457,20 @@ typedef struct {
 #define I2C0_SLTH               *(volatile uint8_t  *)0x4006600A // I2C SCL Low Timeout Register High
 #define I2C0_SLTL               *(volatile uint8_t  *)0x4006600B // I2C SCL Low Timeout Register Low
 
+#define I2C1_A1                 *(volatile uint8_t  *)0x40067000 // I2C Address Register 1
+#define I2C1_F                  *(volatile uint8_t  *)0x40067001 // I2C Frequency Divider register
+#define I2C1_C1                 *(volatile uint8_t  *)0x40067002 // I2C Control Register 1
+#define I2C1_S                  *(volatile uint8_t  *)0x40067003 // I2C Status register
+#define I2C1_D                  *(volatile uint8_t  *)0x40067004 // I2C Data I/O register
+#define I2C1_C2                 *(volatile uint8_t  *)0x40067005 // I2C Control Register 2
+#define I2C1_FLT                *(volatile uint8_t  *)0x40067006 // I2C Programmable Input Glitch Filter register
+#define I2C1_RA                 *(volatile uint8_t  *)0x40067007 // I2C Range Address register
+#define I2C1_SMB                *(volatile uint8_t  *)0x40067008 // I2C SMBus Control and Status register
+#define I2C1_A2                 *(volatile uint8_t  *)0x40067009 // I2C Address Register 2
+#define I2C1_SLTH               *(volatile uint8_t  *)0x4006700A // I2C SCL Low Timeout Register High
+#define I2C1_SLTL               *(volatile uint8_t  *)0x4006700B // I2C SCL Low Timeout Register Low
+
+
 // Chapter 45: Universal Asynchronous Receiver/Transmitter (UART)
 #define UART0_BDH               *(volatile uint8_t  *)0x4006A000 // UART Baud Rate Registers: High
 #define UART0_BDL               *(volatile uint8_t  *)0x4006A001 // UART Baud Rate Registers: Low
@@ -1468,6 +1508,8 @@ typedef struct {
 #define UART0_MA2               *(volatile uint8_t  *)0x4006A009 // UART Match Address Registers 2
 #define UART0_C4                *(volatile uint8_t  *)0x4006A00A // UART Control Register 4
 #define UART0_C5                *(volatile uint8_t  *)0x4006A00B // UART Control Register 5
+#define UART_C5_TDMAS           0x80
+#define UART_C5_RDMAS           0x20
 #define UART0_ED                *(volatile uint8_t  *)0x4006A00C // UART Extended Data Register
 #define UART0_MODEM             *(volatile uint8_t  *)0x4006A00D // UART Modem Register
 #define UART0_IR                *(volatile uint8_t  *)0x4006A00E // UART Infrared Register
@@ -1951,7 +1993,9 @@ typedef struct {
 #define SCB_CFSR                *(volatile uint32_t *)0xE000ED28 // Configurable Fault Status Register
 #define SCB_HFSR                *(volatile uint32_t *)0xE000ED2C // HardFault Status
 #define SCB_DFSR                *(volatile uint32_t *)0xE000ED30 // Debug Fault Status
-#define SCB_MMFAR               *(volatile uint32_t *)0xE000ED34 // MemManage Fault Address
+#define SCB_MMAR                *(volatile uint32_t *)0xE000ED34 // MemManage Fault Address
+#define SCB_BFAR                *(volatile uint32_t *)0xE000ED38 // BusFault Addreses Register
+#define SCB_AFSR                *(volatile uint32_t *)0xE000ED3C // Auxilary Fault Status Register
 
 #define SYST_CSR                *(volatile uint32_t *)0xE000E010 // SysTick Control and Status
 #define SYST_CSR_COUNTFLAG              (uint32_t)0x00010000
